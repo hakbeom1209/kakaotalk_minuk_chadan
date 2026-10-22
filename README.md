@@ -1,0 +1,109 @@
+# Kakao Message Filter · Windows 시제품
+
+카카오톡 PC 채팅창에서 지정한 닉네임의 **흰색 수신 말풍선** 위에 클릭이 통과되는 가림막을 표시합니다. Python 3.11 이상, Win32 API, Tesseract OCR, OpenCV를 사용합니다. 서버 메시지나 카카오톡 내부 파일은 수정하지 않습니다.
+
+**실험 단계입니다. 실제 카카오톡에서의 정확도는 아직 검증하지 않았습니다.** Linux 클라우드에서는 실제 한국어/영어 OCR과 필터 로직을 검사했습니다. Windows 캡처·클릭 통과·배율·창 전환은 실제 PC 검증이 필요합니다. Android는 포함하지 않습니다.
+
+## Windows에서 실행
+
+1. Windows 10 **2004 이상** 또는 Windows 11에 [Python](https://www.python.org/downloads/windows/) 3.11 이상을 설치합니다. Tcl/Tk와 Python Launcher를 포함하세요. 64비트 Python 3.12를 권장합니다.
+2. [Tesseract 안내](https://tesseract-ocr.github.io/tessdoc/Installation.html)의 Windows 설치 링크로 OCR 엔진을 설치하고 **Korean 및 English** 언어 데이터를 선택합니다. 기본 설치 위치 `C:\Program Files\Tesseract-OCR`는 자동 탐지합니다. 다른 위치라면 PATH에 추가하거나 설정 JSON의 `tesseractPath`에 실행 파일 경로를 지정하세요. 엔진/언어 데이터는 EXE에 포함하지 않습니다.
+3. 이 저장소 폴더에서 PowerShell을 열고 실행합니다.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\setup-windows.ps1
+.\.venv\Scripts\python.exe -m kakao_filter
+```
+
+설치 스크립트는 로컬 Python 가상환경을 만들고 패키지를 설치한 뒤 OCR을 진단합니다. `ExecutionPolicy Bypass`는 이 스크립트 실행에만 적용되며 시스템 정책은 변경하지 않습니다. 회사 정책으로 금지된 경우 README의 pip 명령을 직접 실행하세요.
+
+```powershell
+py -3 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m pip install --no-deps -e .
+.\.venv\Scripts\python.exe -m kakao_filter --doctor
+```
+
+## 사용 방법
+
+1. 카카오톡을 실행하고 **독립된 채팅창**을 엽니다. 기본 밝은 테마와 100% 배율에서 먼저 시험하세요.
+2. 필터에서 `카카오톡 창 새로 찾기`를 누르고 대상 창을 선택합니다. 실행 파일 이름이 `KakaoTalk.exe`인 창만 나옵니다.
+3. 숨길 닉네임을 한 줄에 하나씩 입력합니다. 동명이인이 있으면 사용하지 마세요. OCR은 실제 계정 ID를 알 수 없습니다.
+4. `현재 선택 창 제목을 목록에 추가`를 누릅니다. 특정 방 모드에서는 **선택한 창 핸들 및 저장된 제목**이 모두 일치해야 합니다. 모든 창 옵션은 단체방/개인방을 구별하지 않습니다.
+5. 상단 제목 영역과 하단 입력 영역을 제외할 높이를 조절합니다. 이 값은 DPI 인식 후 실제 픽셀 기준입니다. 잘못 설정하면 이름을 놓치거나 입력 영역을 분석할 수 있습니다.
+6. 표시 방식을 선택하고 필터를 켠 뒤 `설정 저장 및 적용`을 누릅니다. 카카오톡 채팅창을 전면으로 가져옵니다.
+7. 중지하려면 필터 설정 창으로 돌아가 체크를 끄세요. 창이 전면에서 사라지거나 최소화되면 가림막을 제거합니다. 종료 시에도 제거합니다.
+
+기본 상태는 꺼짐이며 대상 미설정 상태에서는 시작하지 않습니다. Windows 시작 시 실행은 현재 사용자 Run 레지스트리에만 등록하며 체크 해제 후 저장하면 제거합니다. 소스/가상환경 위치를 옮기기 전 자동 실행을 해제하세요. 완전 가림은 `opaque`, 안내문은 `placeholder`, 흐림은 `blur`입니다. 흐림은 글자를 추측할 수 있으므로 기본 완전 가림을 권장합니다.
+
+## 지원 범위와 한계
+
+| 항목 | 현재 상태 |
+| --- | --- |
+| 숨김 목록, 방 제목 범위, JSON 저장, 전체 켜기/끄기 | 구현 |
+| 흰색 수신 말풍선 + 바로 위 닉네임 | 휴리스틱 인식 구현, 실제 카카오톡 미검증 |
+| 완전 가림 / 안내문 / 흐림 | Win32 가림막 구현, 실제 PC 시험 필요 |
+| 이동·크기 변경·전면 창 전환 | 60ms 주기로 확인, 기존 가림막 제거 |
+| 스크롤·새 메시지 | 표시 중 프레임 변화 감지 시 제거, OCR 결과 적용 직전 원본 프레임 일치 확인 |
+| 한국어 / 영어 OCR | 합성 이미지 통합 테스트 통과 |
+| 연속 메시지의 생략된 이름 | 미지원: 이전 발신자를 추측하지 않음 |
+| 사진·이모티콘·답장·어두운 테마 | 미지원, 정확한 메시지 범위 판별 보장 없음 |
+| 동명이인 구별 | 미지원, 동일 표시 이름이면 구별 불가 |
+| Android | 미구현 |
+
+OCR 신뢰도 80 이상과 정규화된 이름의 정확 일치만 사용하며 유사 문자열은 매칭하지 않습니다. 닉네임은 NFC 정규화, 앞뒤 공백 제거, 연속 공백 축약을 적용합니다. OCR의 겹친 한국어 음절 토큰은 이어 붙입니다. 그래도 인식 오류는 가능하고 이름 길이가 약 260px를 넘으면 누락될 수 있습니다. OCR 신뢰도는 신원 인증이 아닙니다.
+
+캡처는 전면 카카오톡 창의 클라이언트 영역을 로컬 화면에서 읽는 방식입니다. 다른 창/알림이 덮으면 인식이 실패할 수 있고 특수 렌더링, 원격 데스크톱, 권한 차이, 업데이트, 배율에 따라 동작이 달라집니다. 가림막은 `WDA_EXCLUDEFROMCAPTURE`를 설정하며 실패하면 필터를 중지합니다. 클릭 통과 및 포커스 비활성 스타일을 적용합니다.
+
+**순간 노출을 막을 수 없습니다.** OCR 도중에는 이전 가림막을 지우며 새 화면의 인식이 완료될 때까지 내용이 보입니다. 애니메이션/시계 등 픽셀 변화가 잦으면 안전한 결과를 얻지 못해 가림막이 표시되지 않을 수 있습니다. 최대 60개 후보를 순차 분석하므로 긴 방에서는 지연이 커질 수 있습니다. 보안/비밀 보호 수단으로 사용하지 마세요.
+
+`hideImages` 설정 키는 향후 호환용으로 보존할 뿐 현재 사진 숨김 기능을 활성화하지 않습니다. 지원하지 않는 기능을 UI에 동작하는 옵션으로 표시하지 않습니다.
+
+## 개인정보와 설정
+
+설정 파일은 `%LOCALAPPDATA%\KakaoMessageFilter\settings.json`에 저장됩니다. 설정 파일에는 닉네임, 채팅방 제목, 옵션과 OCR 경로만 저장됩니다. 화면과 OCR 결과는 메모리에서 처리하며 이미지 파일이나 메시지 로그를 만들지 않고 외부 API도 호출하지 않습니다. 패키지/OCR 설치 때는 다운로드 네트워크가 필요합니다. 설정은 평문이므로 민감한 닉네임과 방 제목을 넣는 점에 유의하세요.
+
+손상된 설정은 덮어쓰지 않고 오류를 표시합니다. 다음 저장은 사용자가 입력한 새 설정으로 교체합니다. 설정은 임시 파일 작성 후 원자적으로 교체합니다.
+
+## 개발 및 테스트
+
+```bash
+python -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m pip install -e '.[dev]'
+.venv/bin/python -m kakao_filter --doctor
+.venv/bin/python -m pytest -q
+```
+
+Linux에는 `tesseract-ocr`, `tesseract-ocr-kor`, `fonts-noto-cjk`가 필요합니다. Windows에서는 `.venv\Scripts\python.exe`를 사용하세요. Linux는 GUI 실시간 실행 대상이 아니며 `--doctor`와 코어 테스트만 지원합니다. 한국어 테스트는 지정된 Noto CJK 글꼴이 있는 환경에서 실행하며 글꼴이 없으면 건너뜁니다. Win32 테스트는 Windows에서만 실행합니다.
+
+검사는 설정 유효성/보존, 방 범위, 잘못된 사용자 매칭 방지, 낮은 신뢰도/모호한 이름 무시, 이름 없는 연속 메시지 무시, 실제 한국어/영어 OCR, 오래된 프레임 거부를 포함합니다. `.github/workflows/check.yml`은 Linux 테스트와 Windows 네이티브 스타일/캡처 제외 검사를 실행하고 EXE를 아티팩트로 만듭니다. 이 워크플로 자체는 클라우드 작업에서 실행하지 않았습니다.
+
+## EXE 만들기
+
+Windows에서 설치를 마친 뒤 실행합니다. Linux에서는 Windows EXE를 만들지 않습니다.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\build-windows.ps1
+```
+
+출력은 `dist\KakaoMessageFilter.exe`이며 Tesseract를 별도로 설치해야 합니다. CI가 실행되면 `KakaoMessageFilter-Windows` 아티팩트에서도 받을 수 있습니다. 현재 작업에서 Windows EXE 빌드나 코드 서명은 수행하지 않았습니다.
+
+## 실제 PC 확인 항목
+
+- [ ] 테스트 방에서 대상/비대상 닉네임 각각의 말풍선을 확인한다.
+- [ ] 동명이인, 긴 이름, 줄바꿈, 연속 메시지가 잘못 연결되지 않는지 확인한다.
+- [ ] 스크롤, 새 메시지, 창 이동/크기 변경 직후 오래된 위치에 남지 않는지 확인한다.
+- [ ] 다중 모니터와 100/125/150% 배율에서 좌표를 확인한다.
+- [ ] 가림막 위 클릭·드래그·휠이 카카오톡으로 전달되는지 확인한다.
+- [ ] 앱 전환·최소화·필터 OFF·종료 후 가림막이 제거되는지 확인한다.
+- [ ] 로그인 자동 실행 등록/해제와 OCR 설치 오류 동작을 확인한다.
+
+## 파일 구성
+
+- `kakao_filter/app.py`: 설정 UI, 프레임 수명 관리, 비동기 OCR
+- `kakao_filter/windows.py`: 프로세스/창 탐색, DPI, Win32 스타일, 자동 실행
+- `kakao_filter/detector.py`: 밝은 말풍선 후보 탐색, 닉네임 OCR 및 정확 매칭
+- `kakao_filter/overlay.py`: 클릭 통과 가림막, 안내문, 흐림
+- `kakao_filter/config.py`: 설정 검증과 원자적 저장
+- `tests/`: 인식·설정·프레임·Windows 네이티브 검사

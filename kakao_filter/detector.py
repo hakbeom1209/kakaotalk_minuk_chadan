@@ -23,6 +23,26 @@ class Name:
     confidence: float
 
 
+def join_ocr_words(data: dict, indices: list[int]) -> str:
+    """Rejoin tightly spaced Hangul OCR tokens while retaining actual word gaps.
+
+    Native Tesseract models split Korean names differently. Comparing token start
+    against only the previous right edge used to invent spaces between syllables.
+    This uses the measured gap; it never substitutes a different letter.
+    """
+    first = indices[0]
+    text = data["text"][first]
+    previous = first
+    for index in indices[1:]:
+        word = data["text"][index]
+        gap = data["left"][index] - (data["left"][previous] + data["width"][previous])
+        hangul = all("가" <= char <= "힣" for char in data["text"][previous] + word)
+        limit = .20 * min(data["height"][previous], data["height"][index]) if hangul else 0
+        text += ("" if gap <= limit else " ") + word
+        previous = index
+    return text
+
+
 def bubble_candidates(image: Image.Image) -> list[Rect]:
     rgb = np.asarray(image.convert("RGB"))
     h, w = rgb.shape[:2]
@@ -108,20 +128,14 @@ class TesseractNames:
             y = min(data["top"][i] for i in indices)
             r = max(data["left"][i]+data["width"][i] for i in indices)
             b = max(data["top"][i]+data["height"][i] for i in indices)
-            text = data["text"][indices[0]]
-            previous_right = data["left"][indices[0]] + data["width"][indices[0]]
-            for i in indices[1:]:
-                # Tesseract sometimes splits adjacent Hangul syllables into overlapping words.
-                separator = "" if data["left"][i] <= previous_right else " "
-                text += separator + data["text"][i]
-                previous_right = data["left"][i] + data["width"][i]
+            text = join_ocr_words(data, indices)
             result.append(Name(text,
                                Rect(left+x//3, top+y//3, (r-x+2)//3, (b-y+2)//3),
                                min(float(data["conf"][i]) for i in indices)))
         return result
 
 
-def detect(image: Image.Image, settings: Settings, ocr: Callable, diagnostics: dict | None = None) -> list[Rect]:
+def detect(image: Image.Image, settings: Settings, ocr: Callable, diagnostics: dict | None = None, readings: list | None = None) -> list[Rect]:
     if not settings.enabled or not settings.hiddenUsers:
         return []
     hidden = {normalize(name) for name in settings.hiddenUsers}
@@ -137,6 +151,9 @@ def detect(image: Image.Image, settings: Settings, ocr: Callable, diagnostics: d
         if not hasattr(ocr, "for_avatar"):
             continue
         names = ocr.for_avatar(image, avatar)
+        if readings is not None:
+            readings.append({"y": avatar.y, "names": names,
+                             "matched": len(names) == 1 and names[0].confidence >= 80 and normalize(names[0].text) in hidden})
         if len(names) != 1 or names[0].confidence < 80:
             if diagnostics is not None:
                 diagnostics["unreadable"] += 1
@@ -242,8 +259,11 @@ def group_candidates(image: Image.Image) -> list[tuple[Rect, list[Rect]]]:
     return result
 
 
-def analyze(image: Image.Image, settings: Settings, ocr: Callable) -> tuple[list[Rect], dict]:
-    """Return content-free counts so the UI can distinguish detection failures."""
+def analyze(image: Image.Image, settings: Settings, ocr: Callable, include_names: bool = False) -> tuple[list[Rect], dict]:
+    """Collect only counts by default; opt-in nickname readings remain in memory."""
     diagnostics = {"groups": 0, "matched": 0, "unreadable": 0}
-    boxes = detect(image, settings, ocr, diagnostics)
+    readings = [] if include_names else None
+    boxes = detect(image, settings, ocr, diagnostics, readings)
+    if readings is not None:
+        diagnostics["readings"] = readings
     return boxes, diagnostics

@@ -6,7 +6,8 @@ import shutil
 import sys
 import time
 
-from .config import Settings, config_path, load, save
+from .config import Settings, config_path, load, save, normalize
+from . import __version__
 
 
 def doctor(language, executable):
@@ -45,15 +46,16 @@ class Application:
         self.last_target = None
         self.next_capture = 0
         self.displayed_frame = None
+        self.last_readings = []
         self.ocr = None
         try:
             self.settings = load(path)
         except (ValueError, OSError) as exc:
             messagebox.showerror("설정 오류", f"기존 설정은 보존합니다.\n{exc}")
             self.settings = Settings()
-        root.title("Kakao Message Filter · 실험 버전")
-        root.geometry("680x760")
-        root.minsize(620, 700)
+        root.title(f"Kakao Message Filter {__version__} · 실험 버전")
+        root.geometry("700x850")
+        root.minsize(620, 800)
         root.protocol("WM_DELETE_WINDOW", self.close)
         frame = ttk.Frame(root, padding=20)
         frame.pack(fill="both", expand=True)
@@ -61,6 +63,13 @@ class Application:
         ttk.Label(frame, text="이 PC 화면에서만 처리 · 메시지 저장/전송 없음").pack(anchor="w", pady=(4, 12))
         self.status = tk.StringVar(value="중지됨 · 대상 채팅창을 선택하세요")
         ttk.Label(frame, textvariable=self.status, wraplength=620).pack(anchor="w", pady=6)
+        self.show_readings = tk.BooleanVar(value=False)
+        diagnostics = ttk.Frame(frame)
+        diagnostics.pack(fill="x", pady=3)
+        ttk.Checkbutton(diagnostics, text="OCR 닉네임 확인 (저장·전송 안 함)", variable=self.show_readings, command=self.reset_readings).pack(side="left")
+        ttk.Button(diagnostics, text="인식 이름 보기 / 추가", command=self.inspect_names).pack(side="left", padx=8)
+        self.reading_status = tk.StringVar(value="")
+        ttk.Label(frame, textvariable=self.reading_status, wraplength=620).pack(anchor="w")
         self.enabled = tk.BooleanVar(value=self.settings.enabled)
         ttk.Checkbutton(frame, text="필터 켜기 (설정 저장 후 적용)", variable=self.enabled, command=self.disable_now).pack(anchor="w")
         ttk.Label(frame, text="숨길 닉네임 (한 줄에 한 명, 띄어쓰기 포함 정확히 입력)").pack(anchor="w", pady=(12, 4))
@@ -104,6 +113,46 @@ class Application:
         if self.settings.enabled:
             self.start()
         root.after(100, self.tick)
+
+    def reset_readings(self):
+        self.last_readings = []
+        self.reading_status.set("카카오톡 창을 앞으로 가져오면 인식한 닉네임을 표시합니다." if self.show_readings.get() else "")
+        self.invalidate()
+
+    def inspect_names(self):
+        if not self.show_readings.get() or not self.last_readings:
+            self.messagebox.showinfo("닉네임 인식 확인", "OCR 닉네임 확인을 체크하고 카카오톡을 앞으로 가져온 뒤 다시 이 버튼을 누르세요.")
+            return
+        popup = self.tk.Toplevel(self.root)
+        popup.title("인식한 닉네임 · 이번 화면의 메모리 결과")
+        popup.geometry("650x310")
+        self.ttk.Label(popup, text="실제 대상의 이름인지 확인하세요. 다른 글자로 읽혔다면 인식 이름을 추가할 수 있습니다.\n추가한 이름도 숨김 대상이 됩니다. 같은 이름의 다른 참여자도 가려질 수 있습니다.", wraplength=620).pack(padx=10, pady=8)
+        tree = self.ttk.Treeview(popup, columns=("name", "confidence", "y", "matched"), show="headings", height=5)
+        for column, label, width in (("name", "OCR이 읽은 이름", 260), ("confidence", "신뢰도", 80), ("y", "위치(위에서 px)", 110), ("matched", "숨김 목록 일치", 110)):
+            tree.heading(column, text=label)
+            tree.column(column, width=width)
+        tree.pack(fill="both", expand=True, padx=10)
+        choices = {}
+        for row in self.last_readings:
+            if not row["names"]:
+                tree.insert("", "end", values=("(읽지 못함)", "-", row["y"], "아니요"))
+            for name in row["names"]:
+                key = tree.insert("", "end", values=(repr(name.text), f"{name.confidence:.0f}", row["y"], "예" if row["matched"] else "아니요"))
+                if len(row["names"]) == 1:
+                    choices[key] = name
+        def add_name():
+            selection = tree.selection()
+            name = choices.get(selection[0]) if selection else None
+            if name is None or name.confidence < 80:
+                self.messagebox.showinfo("추가할 이름 선택", "신뢰도 80 이상으로 읽힌 단일 이름을 선택하세요.", parent=popup)
+                return
+            value = normalize(name.text)
+            current = self.names.get("1.0", "end-1c")
+            if value not in [normalize(line) for line in current.splitlines()]:
+                self.names.insert("end-1c", ("\n" if current and not current.endswith("\n") else "") + value + "\n")
+            popup.destroy()
+            self.status.set("이름을 추가했습니다. '설정 저장 및 적용'을 누른 뒤 카카오톡을 앞으로 가져오세요.")
+        self.ttk.Button(popup, text="선택한 인식 이름을 숨김 목록에 추가", command=add_name).pack(pady=10)
 
     def invalidate(self):
         self.generation += 1
@@ -219,6 +268,10 @@ class Application:
                     generation, previous, image, origin = metadata
                     if (self.active and target == previous and generation == self.generation
                             and self.same_frame(image, self.capture(target))):
+                        if self.show_readings.get() and "readings" in diagnostic:
+                            self.last_readings = diagnostic["readings"]
+                            summary = [f"{name.text!r}({name.confidence:.0f})" for row in self.last_readings for name in row["names"]]
+                            self.reading_status.set("OCR 이름: " + (" / ".join(summary[:8]) if summary else "읽지 못함"))
                         self.overlay.show(image, boxes, origin, self.settings.displayMode)
                         self.status.set(f"실행 중 · 가림막 {len(boxes)}개 · 발신자 그룹 {diagnostic['groups']} / 대상 이름 {diagnostic['matched']} / 이름 인식 실패 {diagnostic['unreadable']}")
                         self.displayed_frame = image
@@ -235,7 +288,7 @@ class Application:
                 # Remove stale masks while new content is being recognized.
                 self.overlay.clear()
                 self.pending = (self.generation, target, image, (x, y+top))
-                self.future = self.executor.submit(analyze, image, self.settings, self.ocr)
+                self.future = self.executor.submit(analyze, image, self.settings, self.ocr, self.show_readings.get())
                 self.last_target = target
             elif self.active and not target:
                 self.status.set("대기 중 · 적용 대상 카카오톡 창이 전면에 없습니다")

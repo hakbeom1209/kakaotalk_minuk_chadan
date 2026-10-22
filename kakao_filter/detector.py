@@ -1,6 +1,9 @@
 """Light-theme avatar groups and sender-only OCR; no captured content is persisted."""
 from __future__ import annotations
 from dataclasses import dataclass
+from collections import OrderedDict
+from hashlib import blake2b
+from threading import Lock
 from typing import Callable
 import cv2
 import numpy as np
@@ -47,13 +50,17 @@ def bubble_candidates(image: Image.Image) -> list[Rect]:
     rgb = np.asarray(image.convert("RGB"))
     h, w = rgb.shape[:2]
     # White incoming bubbles only. Yellow outgoing bubbles and dark themes are excluded.
-    white = ((rgb.min(axis=2) >= 235) & (np.ptp(rgb, axis=2) <= 15)).astype("uint8") * 255
+    red, green, blue = cv2.split(rgb)
+    minimum = cv2.min(cv2.min(red, green), blue)
+    maximum = cv2.max(cv2.max(red, green), blue)
+    white = cv2.bitwise_and(cv2.compare(minimum, 235, cv2.CMP_GE),
+                            cv2.compare(cv2.subtract(maximum, minimum), 15, cv2.CMP_LE))
     count, labels, stats, _ = cv2.connectedComponentsWithStats(white, connectivity=8)
     boxes = []
     for index in range(1, count):
         x, y, bw, bh, area = map(int, stats[index])
-        if (20 <= bw <= w * .70 and 18 <= bh <= h * .75
-                and 25 <= x <= w * .40 and x + bw < w * .88
+        if (20 <= bw <= w - 30 and 18 <= bh <= h * .75
+                and 25 <= x <= min(180, w * .40) and x + bw <= w - 6
                 and y > 2 and y + bh < h - 2 and area / (bw * bh) >= .55):
             boxes.append(Rect(max(0, x - 2), max(0, y - 2), min(w - x + 2, bw + 4), min(h - y + 2, bh + 4)))
     return sorted(boxes, key=lambda b: (b.y, b.x))
@@ -76,6 +83,11 @@ class TesseractNames:
     def __init__(self, settings: Settings):
         import pytesseract
         self.engine = pytesseract
+        self._cache = OrderedDict()
+        self._cache_lock = Lock()
+        self._hits = 0
+        self._misses = 0
+        self._revision = 0
         if settings.tesseractPath:
             pytesseract.pytesseract.tesseract_cmd = settings.tesseractPath
         self.language = settings.ocrLanguage
@@ -84,7 +96,7 @@ class TesseractNames:
         if missing:
             raise RuntimeError("Tesseract 언어 데이터가 없습니다: " + ", ".join(sorted(missing)))
 
-    def __call__(self, image: Image.Image, box: Rect) -> list[Name]:
+    def __call__(self, image: Image.Image, box: Rect, *, cache_only=False) -> list[Name] | None:
         # Only the narrow sender strip above each candidate, never the bubble body.
         left, top = max(0, box.x - 5), max(0, box.y - 35)
         right = min(image.width, box.x + 260)
@@ -93,9 +105,9 @@ class TesseractNames:
         white = (pixels.min(axis=2) >= 235) & (np.ptp(pixels, axis=2) <= 15)
         if white.mean() > .15:
             return []  # A preceding bubble overlaps the strip: sender attribution is unsafe.
-        return self.read_strip(strip, left, top)
+        return self.read_strip(strip, left, top, cache_only=cache_only)
 
-    def for_avatar(self, image: Image.Image, avatar: Rect) -> list[Name]:
+    def for_avatar(self, image: Image.Image, avatar: Rect, *, cache_only=False) -> list[Name] | None:
         scale = avatar.width / 40
         left = avatar.x + avatar.width + round(8 * scale)
         top = max(0, avatar.y - round(3 * scale))
@@ -111,9 +123,40 @@ class TesseractNames:
         # Tight bounds improve small Korean name OCR without reading message bodies.
         x0, y0 = max(0, int(xs.min())-4), max(0, int(ys.min())-3)
         x1, y1 = min(strip.width, int(xs.max())+5), min(strip.height, int(ys.max())+4)
-        return self.read_strip(strip.crop((x0, y0, x1, y1)), left+x0, top+y0)
+        return self.read_strip(strip.crop((x0, y0, x1, y1)), left+x0, top+y0, cache_only=cache_only)
 
-    def read_strip(self, strip: Image.Image, left: int, top: int) -> list[Name]:
+    def cached_for_avatar(self, image: Image.Image, avatar: Rect) -> list[Name] | None:
+        return self.for_avatar(image, avatar, cache_only=True)
+
+    def cached_for_bubble(self, image: Image.Image, box: Rect) -> list[Name] | None:
+        return self(image, box, cache_only=True)
+
+    def cache_revision(self):
+        with self._cache_lock:
+            return self._revision
+
+    def cache_stats(self):
+        with self._cache_lock:
+            return {"hits": self._hits, "misses": self._misses, "entries": len(self._cache)}
+
+    @staticmethod
+    def _translate(names, left, top):
+        return [Name(n.text, Rect(n.bounds.x+left, n.bounds.y+top, n.bounds.width, n.bounds.height), n.confidence) for n in names]
+
+    def read_strip(self, strip: Image.Image, left: int, top: int, *, cache_only=False) -> list[Name] | None:
+        # Cache only identical nickname pixels, never avatar identity or screen y.
+        # Coordinates are relative so a cached name follows a fresh detected tile.
+        cache_key = (strip.size, self.language, blake2b(strip.tobytes(), digest_size=16).digest())
+        with self._cache_lock:
+            cached = self._cache.get(cache_key)
+            if cached is not None:
+                self._cache.move_to_end(cache_key)
+                self._hits += 1
+                return self._translate(cached, left, top)
+            if not cache_only:
+                self._misses += 1
+        if cache_only:
+            return None
         strip = strip.resize((strip.width*3, strip.height*3))
         data = self.engine.image_to_data(strip, lang=self.language, config="--psm 7",
                                          output_type=self.engine.Output.DICT, timeout=3)
@@ -132,25 +175,48 @@ class TesseractNames:
             result.append(Name(text,
                                Rect(left+x//3, top+y//3, (r-x+2)//3, (b-y+2)//3),
                                min(float(data["conf"][i]) for i in indices)))
+        if len(result) == 1 and result[0].confidence >= 80:
+            relative = self._translate(result, -left, -top)
+            with self._cache_lock:
+                self._cache[cache_key] = relative
+                self._revision += 1
+                self._cache.move_to_end(cache_key)
+                while len(self._cache) > 256:
+                    self._cache.popitem(last=False)
         return result
 
 
-def detect(image: Image.Image, settings: Settings, ocr: Callable, diagnostics: dict | None = None, readings: list | None = None) -> list[Rect]:
+class AnalysisCancelled(Exception):
+    """The source frame changed while OCR was running."""
+
+
+def detect(image: Image.Image, settings: Settings, ocr: Callable, diagnostics: dict | None = None, readings: list | None = None, *, cache_only=False, cancelled=None) -> list[Rect]:
     if not settings.enabled or not settings.hiddenUsers:
         return []
     hidden = {normalize(name) for name in settings.hiddenUsers}
     result = []
     # Prefer avatar-anchored groups: a photo need not have a white bubble and
     # consecutive messages do not repeat the sender name.
+    if cancelled and cancelled():
+        raise AnalysisCancelled()
     groups = group_candidates(image)
     covered = []
     if diagnostics is not None:
         diagnostics.update(groups=len(groups), matched=0, unreadable=0)
+        if cache_only:
+            diagnostics["pending"] = False
     for avatar, boxes in groups[:60]:
+        if cancelled and cancelled():
+            raise AnalysisCancelled()
         covered.extend(boxes)
         if not hasattr(ocr, "for_avatar"):
             continue
-        names = ocr.for_avatar(image, avatar)
+        reader = getattr(ocr, "cached_for_avatar", None) if cache_only else ocr.for_avatar
+        names = reader(image, avatar) if reader is not None else None
+        if names is None:
+            if diagnostics is not None:
+                diagnostics["pending"] = True
+            continue
         if readings is not None:
             readings.append({"y": avatar.y, "names": names,
                              "matched": len(names) == 1 and names[0].confidence >= 80 and normalize(names[0].text) in hidden})
@@ -167,9 +233,17 @@ def detect(image: Image.Image, settings: Settings, ocr: Callable, diagnostics: d
                 result.append(box)
     # Legacy direct-name path is used only for candidates outside avatar groups.
     for box in bubble_candidates(image)[:60]:
+        if cancelled and cancelled():
+            raise AnalysisCancelled()
         if any(intersects(box, owned) for owned in covered):
             continue
-        result.extend(associate([box], ocr(image, box), settings))
+        reader = getattr(ocr, "cached_for_bubble", None) if cache_only else ocr
+        names = reader(image, box) if reader is not None else None
+        if names is None:
+            if diagnostics is not None:
+                diagnostics["pending"] = True
+            continue
+        result.extend(associate([box], names, settings))
     return result
 
 
@@ -186,13 +260,15 @@ def is_white_bubble(image: Image.Image, box: Rect) -> bool:
 def foreground_mask(image: Image.Image) -> np.ndarray:
     """Estimate a flat chat background from the most common quantized colour."""
     rgb = np.asarray(image.convert("RGB"))
-    sample = rgb[::4, ::4].astype(np.int32)
+    # The left gutter precedes avatars and bubbles, even for nearly full-width text.
+    sample = rgb[::4, 2:min(10, rgb.shape[1])].astype(np.int32)
     codes = (sample[:, :, 0] // 8) * 1024 + (sample[:, :, 1] // 8) * 32 + sample[:, :, 2] // 8
     dominant = int(np.bincount(codes.ravel(), minlength=32768).argmax())
     pixels = sample[codes == dominant]
     background = np.median(pixels, axis=0)
-    distance = np.max(np.abs(rgb.astype(np.int16) - background), axis=2)
-    return (distance > 28).astype(np.uint8) * 255
+    lower = tuple(int(max(0, value-28)) for value in background)
+    upper = tuple(int(min(255, value+28)) for value in background)
+    return cv2.bitwise_not(cv2.inRange(rgb, lower, upper))
 
 
 def avatar_candidates(image: Image.Image, mask: np.ndarray) -> list[Rect]:
@@ -231,7 +307,7 @@ def group_candidates(image: Image.Image) -> list[tuple[Rect, list[Rect]]]:
         left = avatar.x + avatar.width + round(12 * scale)
         top = avatar.y + round(21 * scale)
         bottom = avatars[index + 1].y - round(4 * scale) if index + 1 < len(avatars) else height
-        right = min(width - 10, max(left + 40, round(width * .92)))
+        right = width - 6  # A maximized incoming bubble can occupy almost the entire width.
         if bottom <= top or right <= left:
             continue
         # Include a small margin for the bubble tail but exclude avatar/name columns.
@@ -253,17 +329,21 @@ def group_candidates(image: Image.Image) -> list[tuple[Rect, list[Rect]]]:
                 ambiguous = True
                 break
             bx, by = start + x, top + y
+            pixels = np.asarray(image.crop((bx, by, bx+bw, by+bh)).convert("RGB"))[::3, ::3]
+            yellow = (pixels[:, :, 0] >= 220) & (pixels[:, :, 1] >= 180) & (pixels[:, :, 2] <= 120)
+            if yellow.mean() > .55:
+                continue  # Wide outgoing yellow bubbles must not inherit an incoming sender.
             boxes.append(Rect(max(0, bx-2), max(0, by-2), min(width-bx+2, bw+4), min(height-by+2, bh+4)))
         if boxes and not ambiguous:
             result.append((avatar, sorted(boxes, key=lambda b: b.y)))
     return result
 
 
-def analyze(image: Image.Image, settings: Settings, ocr: Callable, include_names: bool = False) -> tuple[list[Rect], dict]:
+def analyze(image: Image.Image, settings: Settings, ocr: Callable, include_names: bool = False, *, cache_only=False, cancelled=None) -> tuple[list[Rect], dict]:
     """Collect only counts by default; opt-in nickname readings remain in memory."""
     diagnostics = {"groups": 0, "matched": 0, "unreadable": 0}
     readings = [] if include_names else None
-    boxes = detect(image, settings, ocr, diagnostics, readings)
+    boxes = detect(image, settings, ocr, diagnostics, readings, cache_only=cache_only, cancelled=cancelled)
     if readings is not None:
         diagnostics["readings"] = readings
     return boxes, diagnostics

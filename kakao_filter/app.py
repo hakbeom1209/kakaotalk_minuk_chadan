@@ -4,7 +4,6 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 import shutil
 import sys
-import time
 
 from .config import Settings, config_path, load, save, normalize
 from . import __version__
@@ -39,12 +38,15 @@ class Application:
         self.win, self.root, self.path = windows, root, path
         self.overlay = Overlay(root)
         self.executor = ThreadPoolExecutor(max_workers=1)
-        self.future = None
+        from .pipeline import LatestFrameAnalyzer
+        self.pipeline = LatestFrameAnalyzer(self.executor)
+        self.frame_serial = 0
+        self.last_report = None
+        self._capture_session = None
         self.generation = 0
         self.active = False
         self.closed = False
         self.last_target = None
-        self.next_capture = 0
         self.displayed_frame = None
         self.last_readings = []
         self.testing_overlay = False
@@ -141,7 +143,6 @@ class Application:
             if not self.closed:
                 self.overlay.clear()
                 self.testing_overlay = False
-                self.next_capture = 0
                 self.status.set("가림막 테스트 종료 · 카카오톡 창을 앞으로 가져오세요")
         self.root.after(8000, finish)
 
@@ -187,9 +188,10 @@ class Application:
 
     def invalidate(self):
         self.generation += 1
+        self.pipeline.cancel()
+        self.last_report = None
         self.last_target = None
         self.displayed_frame = None
-        self.next_capture = 0
         self.overlay.clear()
 
     def disable_now(self):
@@ -268,9 +270,10 @@ class Application:
         top, bottom = self.settings.topMargin, self.settings.bottomMargin
         if width < 200 or height - top - bottom < 60:
             raise ValueError("채팅 영역이 너무 작습니다.")
-        with mss.mss() as capture:
-            shot = capture.grab({"left": x, "top": y+top, "width": width, "height": height-top-bottom})
-            return Image.frombytes("RGB", shot.size, shot.rgb)
+        if self._capture_session is None:
+            self._capture_session = mss.mss()
+        shot = self._capture_session.grab({"left": x, "top": y+top, "width": width, "height": height-top-bottom})
+        return Image.frombytes("RGB", shot.size, shot.rgb)
 
     @staticmethod
     def same_frame(first, second):
@@ -280,71 +283,68 @@ class Application:
         if self.closed:
             return
         if self.testing_overlay:
-            self.root.after(60, self.tick)
+            self.root.after(30, self.tick)
             return
-        from PIL import Image
-        from .detector import analyze
         try:
             target = self.target() if self.active else None
-            if not target or target != self.last_target:
+            if not target:
+                if self.last_target is not None:
+                    self.pipeline.cancel()
                 self.overlay.clear()
+                self.last_target = None
                 self.displayed_frame = None
-            if target and self.displayed_frame is not None:
-                if not self.same_frame(self.capture(target), self.displayed_frame):
+                self.last_report = None
+                if self.active:
+                    self.status.set("대기 중 · 적용 대상 카카오톡 창이 전면에 없습니다")
+                self.root.after(30, self.tick)
+                return
+            image = self.capture(target)
+            changed = target != self.last_target or self.displayed_frame is None or not self.same_frame(image, self.displayed_frame)
+            if changed:
+                self.overlay.clear()  # Never move old masks onto unidentified content.
+                self.frame_serial += 1
+                self.last_report = None
+            elif not self.pipeline.has_work:
+                self.root.after(30, self.tick)
+                return
+            key = (self.generation, target, self.frame_serial)
+            report = self.pipeline.request(image, self.settings, self.ocr, key, self.show_readings.get())
+            if report is not self.last_report:
+                # A scroll can occur during the fast layout pass too. Only paint the
+                # current frame and current window; cached names do not weaken this check.
+                if target != self.target() or not self.same_frame(image, self.capture(target)):
                     self.overlay.clear()
                     self.displayed_frame = None
-                    self.next_capture = 0
-                elif self.future is None:
-                    # Keep successfully painted masks while the source is unchanged.
-                    # Re-OCRing the same frame used to clear them every interval.
-                    self.root.after(60, self.tick)
+                    self.last_report = None
+                    self.root.after(30, self.tick)
                     return
-            if self.future is not None:
-                if self.future.done():
-                    future, metadata = self.future, self.pending
-                    self.future = None
-                    boxes, diagnostic = future.result()
-                    generation, previous, image, origin = metadata
-                    if (self.active and target == previous and generation == self.generation
-                            and self.same_frame(image, self.capture(target))):
-                        if self.show_readings.get() and "readings" in diagnostic:
-                            self.last_readings = diagnostic["readings"]
-                            summary = [f"{name.text!r}({name.confidence:.0f})" for row in self.last_readings for name in row["names"]]
-                            self.reading_status.set("OCR 이름: " + (" / ".join(summary[:8]) if summary else "읽지 못함"))
-                        self.overlay.show(image, boxes, origin, self.settings.displayMode)
-                        self.status.set(f"실행 중 · 가림막 표시 확인 {self.overlay.visible_count()}개 / 감지 {len(boxes)}개 · 발신자 그룹 {diagnostic['groups']} / 대상 이름 {diagnostic['matched']} / 이름 인식 실패 {diagnostic['unreadable']}")
-                        self.displayed_frame = image
-                        self.next_capture = time.monotonic() + self.settings.intervalMs / 1000
-                else:
-                    self.root.after(60, self.tick)
-                    return
-            if target and self.active and time.monotonic() >= self.next_capture:
-                x, y, width, height = target.bounds
-                top, bottom = self.settings.topMargin, self.settings.bottomMargin
-                if width < 200 or height - top - bottom < 60:
-                    raise ValueError("채팅 영역이 너무 작습니다. 창 크기와 제외 높이를 확인하세요.")
-                image = self.capture(target)
-                # Remove stale masks while new content is being recognized.
-                self.overlay.clear()
-                self.pending = (self.generation, target, image, (x, y+top))
-                self.future = self.executor.submit(analyze, image, self.settings, self.ocr, self.show_readings.get())
-                self.last_target = target
-            elif self.active and not target:
-                self.status.set("대기 중 · 적용 대상 카카오톡 창이 전면에 없습니다")
+                boxes, diagnostic = report
+                if self.show_readings.get() and "readings" in diagnostic:
+                    self.last_readings = diagnostic["readings"]
+                    summary = [f"{name.text!r}({name.confidence:.0f})" for row in self.last_readings for name in row["names"]]
+                    self.reading_status.set("OCR 이름: " + (" / ".join(summary[:8]) if summary else "읽지 못함"))
+                x, y, _, _ = target.bounds
+                self.overlay.show(image, boxes, (x, y+self.settings.topMargin), self.settings.displayMode)
+                pending = " · 새 이름 판독 중" if diagnostic.get("pending") else ""
+                self.status.set(f"실행 중 · 가림막 표시 확인 {self.overlay.visible_count()}개 / 감지 {len(boxes)}개 · 발신자 그룹 {diagnostic['groups']} / 대상 이름 {diagnostic['matched']} / 이름 인식 실패 {diagnostic['unreadable']}{pending}")
+                self.last_report = report
+            self.displayed_frame = image
+            self.last_target = target
         except Exception as exc:
             self.active = False
+            self.pipeline.cancel()
             self.overlay.clear()
-            # Do not log OCR data or captured pixels.
             self.status.set("필터 중지 · 오류 창의 내용을 확인하세요.")
             self.messagebox.showerror("필터 오류", f"{type(exc).__name__}: {exc}")
-        self.root.after(60, self.tick)
+        self.root.after(30, self.tick)
 
     def close(self):
         self.closed = True
         self.active = False
         self.overlay.clear()
-        if self.future:
-            self.future.cancel()
+        self.pipeline.cancel()
+        if self._capture_session is not None:
+            self._capture_session.close()
         self.executor.shutdown(wait=False, cancel_futures=True)
         self.root.destroy()
 

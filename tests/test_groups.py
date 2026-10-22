@@ -100,3 +100,30 @@ def test_clipped_next_avatar_stops_previous_group():
     boxes = detect(image, Settings(enabled=True, hiddenUsers=["정민욱"]), NamesByAvatar())
     assert len(boxes) == 3
     assert all(b.y < 600 for b in boxes)
+
+
+@pytest.mark.parametrize("width", [380, 1917])
+def test_near_full_width_message_is_covered_to_its_right_edge(width):
+    image = group_scene(width)
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((62, 221, width-1, 590), fill=(183, 205, 223))
+    draw.rounded_rectangle((68, 221, width-20, 330), radius=3, fill="white")
+    boxes = detect(image, Settings(enabled=True, hiddenUsers=["정민욱"]), NamesByAvatar())
+    assert len(boxes) == 1
+    assert boxes[0].x <= 68
+    assert boxes[0].x + boxes[0].width >= width-20
+
+
+def test_near_full_width_other_sender_is_not_hidden():
+    image = group_scene(1917)
+    ImageDraw.Draw(image).rounded_rectangle((68, 621, 1834, 720), radius=3, fill="white")
+    boxes = detect(image, Settings(enabled=True, hiddenUsers=["정민욱"]), NamesByAvatar())
+    assert all(box.y < 600 for box in boxes)
+
+
+def test_wide_yellow_outgoing_bubble_is_not_owned_by_incoming_sender():
+    image = group_scene(380)
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((62, 221, 379, 590), fill=(183, 205, 223))
+    draw.rounded_rectangle((68, 221, 360, 330), radius=3, fill=(255, 230, 0))
+    assert detect(image, Settings(enabled=True, hiddenUsers=["정민욱"]), NamesByAvatar()) == []

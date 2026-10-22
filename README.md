@@ -4,6 +4,12 @@
 
 **실험 단계입니다. 실제 카카오톡에서의 정확도는 아직 검증하지 않았습니다.** Linux 클라우드에서는 실제 한국어/영어 OCR과 필터 로직을 검사했습니다. Windows 캡처·클릭 통과·배율·창 전환은 실제 PC 검증이 필요합니다. Android는 포함하지 않습니다.
 
+## 다운로드
+
+**[소스코드 ZIP 다운로드](https://github.com/hakbeom1209/kakaotalk_minuk_chadan/archive/refs/heads/main.zip)**
+
+위 링크에서 최신 `main` 브랜치의 소스코드를 ZIP으로 받을 수 있습니다. 비공개 저장소라면 접근 권한이 있는 GitHub 계정으로 로그인하세요. 압축을 푼 뒤 아래 Windows 설치 방법을 따라 실행하세요. 이 ZIP에는 바로 실행하는 EXE가 포함되어 있지 않습니다.
+
 ## Windows에서 실행
 
 1. Windows 10 **2004 이상** 또는 Windows 11에 [Python](https://www.python.org/downloads/windows/) 3.11 이상을 설치합니다. Tcl/Tk와 Python Launcher를 포함하세요. 64비트 Python 3.12를 권장합니다.

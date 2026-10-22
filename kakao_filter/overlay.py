@@ -8,12 +8,14 @@ class Overlay:
         self.root = root
         self.widgets = []
         self.images = []
+        self.handles = []
 
     def clear(self):
         for widget in self.widgets:
             widget.destroy()
         self.widgets.clear()
         self.images.clear()
+        self.handles.clear()
 
     def show(self, image, boxes, origin, mode):
         self.clear()
@@ -33,8 +35,19 @@ class Overlay:
                     tk.Label(window, image=photo, bd=0).pack(fill="both", expand=True)
                 elif mode == "placeholder":
                     tk.Label(window, text="숨긴 메시지입니다", bg="#3d4652", fg="white", font=("맑은 고딕", 9)).pack(fill="both", expand=True)
+                windows.prepare_overlay(window)
+                # Keep Tk's wm state consistent with native visibility. Merely
+                # showing a withdrawn HWND leaves Tk free to hide it again.
+                window.deiconify()
+                window.update_idletasks()
                 hwnd = windows.prepare_overlay(window)
                 windows.show_without_focus(hwnd, origin[0]+box.x, origin[1]+box.y, box.width, box.height)
+                self.handles.append(hwnd)
         except Exception:
             self.clear()
             raise
+
+    def visible_count(self):
+        for hwnd in self.handles:
+            windows.verify_overlay(hwnd)
+        return len(self.handles)

@@ -47,6 +47,7 @@ class Application:
         self.next_capture = 0
         self.displayed_frame = None
         self.last_readings = []
+        self.testing_overlay = False
         self.ocr = None
         try:
             self.settings = load(path)
@@ -68,6 +69,7 @@ class Application:
         diagnostics.pack(fill="x", pady=3)
         ttk.Checkbutton(diagnostics, text="OCR 닉네임 확인 (저장·전송 안 함)", variable=self.show_readings, command=self.reset_readings).pack(side="left")
         ttk.Button(diagnostics, text="인식 이름 보기 / 추가", command=self.inspect_names).pack(side="left", padx=8)
+        ttk.Button(diagnostics, text="가림막 표시 테스트", command=self.test_overlay).pack(side="left")
         self.reading_status = tk.StringVar(value="")
         ttk.Label(frame, textvariable=self.reading_status, wraplength=620).pack(anchor="w")
         self.enabled = tk.BooleanVar(value=self.settings.enabled)
@@ -113,6 +115,35 @@ class Application:
         if self.settings.enabled:
             self.start()
         root.after(100, self.tick)
+
+    def test_overlay(self):
+        if self.testing_overlay:
+            return
+        from PIL import Image
+        from .detector import Rect
+        self.invalidate()
+        self.testing_overlay = True
+        try:
+            origin = (self.root.winfo_rootx()+100, self.root.winfo_rooty()+100)
+            image = Image.new("RGB", (240, 80), "white")
+            self.overlay.show(image, [Rect(0, 0, 240, 80)], origin, "placeholder")
+            # This is synthetic demo content, so allow the user to screenshot it.
+            for hwnd in self.overlay.handles:
+                if not self.win.affinity(hwnd, 0):
+                    raise RuntimeError("테스트 가림막 캡처 설정에 실패했습니다.")
+            self.status.set(f"테스트 가림막 {self.overlay.visible_count()}개 표시 · 8초 후 자동 제거 (테스트는 캡처에도 표시)")
+        except Exception as exc:
+            self.overlay.clear()
+            self.testing_overlay = False
+            self.messagebox.showerror("가림막 표시 실패", str(exc))
+            return
+        def finish():
+            if not self.closed:
+                self.overlay.clear()
+                self.testing_overlay = False
+                self.next_capture = 0
+                self.status.set("가림막 테스트 종료 · 카카오톡 창을 앞으로 가져오세요")
+        self.root.after(8000, finish)
 
     def reset_readings(self):
         self.last_readings = []
@@ -248,6 +279,9 @@ class Application:
     def tick(self):
         if self.closed:
             return
+        if self.testing_overlay:
+            self.root.after(60, self.tick)
+            return
         from PIL import Image
         from .detector import analyze
         try:
@@ -260,6 +294,11 @@ class Application:
                     self.overlay.clear()
                     self.displayed_frame = None
                     self.next_capture = 0
+                elif self.future is None:
+                    # Keep successfully painted masks while the source is unchanged.
+                    # Re-OCRing the same frame used to clear them every interval.
+                    self.root.after(60, self.tick)
+                    return
             if self.future is not None:
                 if self.future.done():
                     future, metadata = self.future, self.pending
@@ -273,7 +312,7 @@ class Application:
                             summary = [f"{name.text!r}({name.confidence:.0f})" for row in self.last_readings for name in row["names"]]
                             self.reading_status.set("OCR 이름: " + (" / ".join(summary[:8]) if summary else "읽지 못함"))
                         self.overlay.show(image, boxes, origin, self.settings.displayMode)
-                        self.status.set(f"실행 중 · 가림막 {len(boxes)}개 · 발신자 그룹 {diagnostic['groups']} / 대상 이름 {diagnostic['matched']} / 이름 인식 실패 {diagnostic['unreadable']}")
+                        self.status.set(f"실행 중 · 가림막 표시 확인 {self.overlay.visible_count()}개 / 감지 {len(boxes)}개 · 발신자 그룹 {diagnostic['groups']} / 대상 이름 {diagnostic['matched']} / 이름 인식 실패 {diagnostic['unreadable']}")
                         self.displayed_frame = image
                         self.next_capture = time.monotonic() + self.settings.intervalMs / 1000
                 else:
@@ -296,8 +335,8 @@ class Application:
             self.active = False
             self.overlay.clear()
             # Do not log OCR data or captured pixels.
-            self.status.set("필터 중지 · OCR/캡처 오류. 설치와 권한을 확인하세요.")
-            self.messagebox.showerror("필터 오류", type(exc).__name__ + ": 화면 인식에 실패했습니다. --doctor로 OCR 설치를 확인하세요.")
+            self.status.set("필터 중지 · 오류 창의 내용을 확인하세요.")
+            self.messagebox.showerror("필터 오류", f"{type(exc).__name__}: {exc}")
         self.root.after(60, self.tick)
 
     def close(self):

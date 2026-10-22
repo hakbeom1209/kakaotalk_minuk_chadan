@@ -38,6 +38,10 @@ get_style = bind(user32, "GetWindowLongPtrW" if C.sizeof(C.c_void_p) == 8 else "
 set_style = bind(user32, "SetWindowLongPtrW" if C.sizeof(C.c_void_p) == 8 else "SetWindowLongW", [W.HWND, C.c_int, LONG_PTR], LONG_PTR)
 affinity = bind(user32, "SetWindowDisplayAffinity", [W.HWND, W.DWORD], W.BOOL)
 set_position = bind(user32, "SetWindowPos", [W.HWND, W.HWND, C.c_int, C.c_int, C.c_int, C.c_int, W.UINT], W.BOOL)
+set_layered_alpha = bind(user32, "SetLayeredWindowAttributes", [W.HWND, W.DWORD, W.BYTE, W.DWORD], W.BOOL)
+get_layered_alpha = bind(user32, "GetLayeredWindowAttributes", [W.HWND, C.POINTER(W.DWORD), C.POINTER(W.BYTE), C.POINTER(W.DWORD)], W.BOOL)
+get_window_rect = bind(user32, "GetWindowRect", [W.HWND, C.POINTER(W.RECT)], W.BOOL)
+redraw_window = bind(user32, "RedrawWindow", [W.HWND, C.c_void_p, W.HANDLE, W.UINT], W.BOOL)
 
 
 @dataclass(frozen=True)
@@ -94,13 +98,39 @@ def prepare_overlay(widget):
     hwnd = get_root(widget.winfo_id(), 2)
     # LAYERED | TRANSPARENT | TOOLWINDOW | NOACTIVATE
     set_style(hwnd, -20, get_style(hwnd, -20) | 0x80000 | 0x20 | 0x80 | 0x08000000)
+    # WS_EX_LAYERED alone does not make the window drawable. Windows requires
+    # SetLayeredWindowAttributes or UpdateLayeredWindow before it becomes visible.
+    if not set_layered_alpha(hwnd, 0, 255, 0x02):  # LWA_ALPHA: fully opaque
+        raise C.WinError(C.get_last_error())
     if not affinity(hwnd, 0x11):
         raise RuntimeError("가림막 캡처 제외를 설정할 수 없습니다. Windows 10 2004 이상이 필요합니다.")
     return hwnd
 
 
 def show_without_focus(hwnd, x, y, width, height):
-    set_position(hwnd, W.HWND(-1), x, y, width, height, 0x10 | 0x40)
+    if not set_position(hwnd, W.HWND(-1), x, y, width, height, 0x10 | 0x40):
+        raise C.WinError(C.get_last_error())
+    # RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW
+    if not redraw_window(hwnd, None, None, 0x01 | 0x80 | 0x100):
+        raise C.WinError(C.get_last_error())
+    verify_overlay(hwnd, (x, y, width, height))
+
+
+def verify_overlay(hwnd, expected=None):
+    if not visible(hwnd) or is_iconic(hwnd):
+        raise RuntimeError("가림막 창이 Windows에서 숨김 상태입니다.")
+    alpha, flags, color = W.BYTE(), W.DWORD(), W.DWORD()
+    if not get_layered_alpha(hwnd, C.byref(color), C.byref(alpha), C.byref(flags)):
+        raise C.WinError(C.get_last_error())
+    if not flags.value & 0x02 or alpha.value != 255:
+        raise RuntimeError("가림막 불투명도 초기화에 실패했습니다.")
+    if expected is not None:
+        rect = W.RECT()
+        if not get_window_rect(hwnd, C.byref(rect)):
+            raise C.WinError(C.get_last_error())
+        actual = (rect.left, rect.top, rect.right-rect.left, rect.bottom-rect.top)
+        if actual != expected:
+            raise RuntimeError(f"가림막 좌표가 일치하지 않습니다: {actual}, 예상 {expected}")
 
 
 def set_autostart(enabled: bool):

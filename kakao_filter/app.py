@@ -92,9 +92,11 @@ class Application:
         for row, label, variable in ((1, "상단 제외 높이(px)", self.top), (2, "하단 입력창 제외 높이(px)", self.bottom)):
             ttk.Label(options, text=label).grid(row=row, column=0, sticky="w", pady=3)
             ttk.Entry(options, textvariable=variable, width=10).grid(row=row, column=1)
+        self.hide_images = tk.BooleanVar(value=self.settings.hideImages)
+        ttk.Checkbutton(frame, text="사진 등 같은 발신자 그룹의 미디어도 가리기", variable=self.hide_images).pack(anchor="w")
         self.autostart = tk.BooleanVar(value=self.settings.autoStart)
         ttk.Checkbutton(frame, text="Windows 로그인 시 실행", variable=self.autostart).pack(anchor="w")
-        ttk.Label(frame, text="지원: 밝은 테마의 흰색 수신 말풍선 + 바로 위 발신자 이름.\n연속 메시지·사진·이모티콘·답장·어두운 테마는 미지원입니다.\n인식 전 순간 노출이 있으며 완전한 차단 수단이 아닙니다.", wraplength=620).pack(anchor="w", pady=8)
+        ttk.Label(frame, text="지원: 밝은 테마의 프로필 + 발신자 이름 + 사진/연속 메시지 그룹.\n프로필·이름이 화면 밖이면 그룹을 추측하지 않습니다. 답장·어두운 테마는 미검증입니다.\n인식 전 순간 노출이 있으며 완전한 차단 수단이 아닙니다.", wraplength=620).pack(anchor="w", pady=8)
         ttk.Button(frame, text="설정 저장 및 적용", command=self.apply).pack(fill="x", pady=6)
         ttk.Label(frame, text=f"설정: {path}", wraplength=620).pack(anchor="w")
         self.refresh()
@@ -141,7 +143,7 @@ class Application:
             raw.update(enabled=self.enabled.get(), hiddenUsers=self.names.get("1.0", "end").splitlines(),
                        selectedChats=self.chats.get("1.0", "end").splitlines(),
                        chatScope="all" if self.all_chats.get() else "selected", displayMode=self.mode.get(),
-                       topMargin=int(self.top.get()), bottomMargin=int(self.bottom.get()), autoStart=self.autostart.get())
+                       topMargin=int(self.top.get()), bottomMargin=int(self.bottom.get()), autoStart=self.autostart.get(), hideImages=self.hide_images.get())
             settings = Settings.parse(raw)
             if settings.enabled and (not settings.hiddenUsers or (settings.chatScope == "selected" and not settings.selectedChats)):
                 raise ValueError("숨길 닉네임과 적용할 채팅방을 입력하세요.")
@@ -198,7 +200,7 @@ class Application:
         if self.closed:
             return
         from PIL import Image
-        from .detector import detect
+        from .detector import analyze
         try:
             target = self.target() if self.active else None
             if not target or target != self.last_target:
@@ -213,12 +215,12 @@ class Application:
                 if self.future.done():
                     future, metadata = self.future, self.pending
                     self.future = None
-                    boxes = future.result()
+                    boxes, diagnostic = future.result()
                     generation, previous, image, origin = metadata
                     if (self.active and target == previous and generation == self.generation
                             and self.same_frame(image, self.capture(target))):
                         self.overlay.show(image, boxes, origin, self.settings.displayMode)
-                        self.status.set(f"실행 중 · 가림막 {len(boxes)}개 · 이름 미확인 메시지는 표시")
+                        self.status.set(f"실행 중 · 가림막 {len(boxes)}개 · 발신자 그룹 {diagnostic['groups']} / 대상 이름 {diagnostic['matched']} / 이름 인식 실패 {diagnostic['unreadable']}")
                         self.displayed_frame = image
                         self.next_capture = time.monotonic() + self.settings.intervalMs / 1000
                 else:
@@ -233,7 +235,7 @@ class Application:
                 # Remove stale masks while new content is being recognized.
                 self.overlay.clear()
                 self.pending = (self.generation, target, image, (x, y+top))
-                self.future = self.executor.submit(detect, image, self.settings, self.ocr)
+                self.future = self.executor.submit(analyze, image, self.settings, self.ocr)
                 self.last_target = target
             elif self.active and not target:
                 self.status.set("대기 중 · 적용 대상 카카오톡 창이 전면에 없습니다")

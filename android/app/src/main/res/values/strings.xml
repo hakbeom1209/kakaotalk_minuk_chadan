@@ -1,6 +1,6 @@
 <resources>
     <string name="app_name">카카오 메시지 필터</string>
-    <string name="accessibility_description">사용자가 지정한 닉네임의 메시지를 이 기기 화면에서 가립니다. 카카오톡이 전면에 있을 때 접근성에 제공된 발신자·메시지 위치를 읽고 클릭이 통과되는 가림막을 표시합니다. 다른 앱의 대화는 읽지 않으며 화면 촬영, 메시지 저장, 외부 전송은 하지 않습니다. 발신자를 확인할 수 없는 영역은 가리지 않습니다. 설정에서 언제든 중지할 수 있습니다.</string>
+    <string name="accessibility_description">사용자가 지정한 닉네임의 메시지를 이 기기 화면에서 가립니다. 카카오톡이 전면에 있을 때 발신자·메시지 위치를 읽고 클릭이 통과되는 가림막을 표시합니다. 메시지 기억 옵션에 별도 동의하면 카카오톡 창 이미지를 메모리에서 분석하고 메시지 표식을 기억합니다. 다른 앱의 화면은 분석하지 않으며 이미지와 메시지 원문을 저장하거나 외부 전송하지 않습니다. 설정에서 언제든 중지할 수 있습니다.</string>
     <string name="status_line">접근성 %1$s\n%2$s\n마지막 채팅 화면: %3$s</string>
     <string name="status_enabled">켜짐</string>
     <string name="status_disabled">꺼짐</string>

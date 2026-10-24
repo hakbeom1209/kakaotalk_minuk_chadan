@@ -32,12 +32,13 @@ class SettingsStore(context: Context) {
             require(scope in setOf("all", "selected")) { "chatScope 값이 올바르지 않습니다" }
             val mode = json.optString("displayMode", "opaque")
             require(mode in setOf("opaque", "placeholder", "blur")) { "displayMode 값이 올바르지 않습니다" }
-            return Rules(boolean("enabled", false), list("hiddenUsers"), list("selectedChats"), scope == "all", boolean("hideImages", true), if (mode == "blur") "opaque" else mode)
+            return Rules(boolean("enabled", false), list("hiddenUsers"), list("selectedChats"), scope == "all", boolean("hideImages", true), if (mode == "blur") "opaque" else mode, boolean("rememberMessages",false))
         }
         fun encode(rules: Rules) = JSONObject().apply {
             put("enabled", rules.enabled); put("hiddenUsers", JSONArray(rules.hiddenUsers))
             put("selectedChats", JSONArray(rules.selectedChats)); put("chatScope", if (rules.allChats) "all" else "selected")
             put("hideImages", rules.hideImages); put("displayMode", rules.displayMode); put("autoStart", false)
+            put("rememberMessages",rules.rememberMessages)
         }.toString(2)
     }
 }

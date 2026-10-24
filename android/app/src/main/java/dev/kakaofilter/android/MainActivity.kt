@@ -20,6 +20,8 @@ class MainActivity : Activity() {
     private lateinit var enabled: Switch
     private lateinit var allChats: CheckBox
     private lateinit var images: CheckBox
+    private lateinit var remember: CheckBox
+    private var screenAnalysisConsent=false
     private lateinit var names: EditText
     private lateinit var rooms: EditText
     private lateinit var mode: Spinner
@@ -55,6 +57,25 @@ class MainActivity : Activity() {
         fun button(text: String, action: () -> Unit) = Button(this).apply { this.text=text; isAllCaps=false; panel.addView(this,LinearLayout.LayoutParams(-1,-2)); setOnClickListener { action() } }
         label("카카오 메시지 필터",25f)
         label("Android ${BuildConfig.VERSION_NAME} · 접근성 기반 실험 버전\n내 화면에만 가림막을 표시합니다. 서버 메시지는 바뀌지 않습니다.")
+        remember=CheckBox(this).apply {
+            text="메시지 기억 · 연속 말풍선 보완 (화면 분석 사용)"
+            isEnabled=android.os.Build.VERSION.SDK_INT>=34
+            panel.addView(this)
+        }
+        label("Android 14 이상·기본 밝은 테마용. 확인한 메시지의 표식과 주변 메시지를 메모리에서 기억하고, 스크롤 이동량으로 가림막을 옮깁니다. 앱 종료·설정 변경 시 기억은 지워집니다. 처음부터 발신자를 못 읽은 메시지는 기억할 수 없습니다.")
+        screenAnalysisConsent=store.load().rememberMessages
+        remember.setOnCheckedChangeListener { _, checked ->
+            if (!checked) {
+                if (store.load().rememberMessages) store.save(store.load().copy(rememberMessages=false))
+                screenAnalysisConsent=false
+            }
+            if (checked && !screenAnalysisConsent) {
+                remember.isChecked=false
+                AlertDialog.Builder(this).setTitle("카카오톡 창 화면 분석")
+                    .setMessage("연속 말풍선을 찾고 스크롤 후에도 기억한 메시지를 가리기 위해 카카오톡 창 이미지를 기기 안에서 분석합니다. 다른 앱과 보안 처리된 창은 분석하지 않습니다. 이미지와 메시지 원문은 저장·전송하지 않고 즉시 버리며, 메시지 표식만 앱 실행 중 메모리에 남깁니다.\n\n이 기능을 켜고 설정을 저장할까요?")
+                    .setNegativeButton("취소",null).setPositiveButton("동의하고 켜기") { _, _ -> screenAnalysisConsent=true;remember.isChecked=true;toast("설정 저장 및 적용을 눌러주세요") }.show()
+            }
+        }
         status=label("접근성 서비스 확인 중")
         savedStatus=label("")
         recognized=label("")
@@ -75,10 +96,10 @@ class MainActivity : Activity() {
             panel.addView(this)
         }
         button("인식한 이름 선택해서 숨김 목록에 추가") { chooseRecognizedName() }
-        label("접근성 권한을 켜면 카카오톡이 전면에 있을 때 발신자와 메시지 위치를 읽습니다. 화면 촬영·원문 저장·외부 전송은 하지 않습니다. 가림막은 터치와 스크롤을 통과시킵니다.")
+        label("접근성 권한으로 카카오톡의 발신자와 메시지 위치를 읽습니다. 상단의 메시지 기억 옵션을 직접 켜면 카카오톡 창 이미지를 기기 메모리에서 분석합니다. 원문·이미지는 저장하거나 전송하지 않습니다. 가림막은 터치와 스크롤을 통과시킵니다.")
         button("동의하고 접근성 설정 열기") {
             AlertDialog.Builder(this).setTitle("접근성 사용 안내")
-                .setMessage("이 앱은 카카오톡 화면의 접근성 정보(발신자, 메시지 위치, 채팅방 제목)를 읽어 지정한 메시지 위에 가림막을 표시합니다. 다른 앱의 대화는 읽지 않습니다. 메시지를 저장하거나 전송하지 않습니다.\n\n다음 설정 화면에서 '카카오 메시지 필터' 서비스를 직접 켜주세요. 언제든 이 화면에서 중지하거나 시스템 설정에서 권한을 끌 수 있습니다.")
+                .setMessage("이 앱은 카카오톡 화면의 접근성 정보(발신자, 메시지 위치, 채팅방 제목)를 읽어 지정한 메시지 위에 가림막을 표시합니다. 메시지 기억 옵션에 별도 동의하면 카카오톡 창 이미지를 메모리에서 분석합니다. 다른 앱의 화면은 분석하지 않으며, 메시지와 이미지를 저장하거나 전송하지 않습니다.\n\n다음 설정 화면에서 '카카오 메시지 필터' 서비스를 직접 켜주세요. 언제든 이 화면에서 중지하거나 시스템 설정에서 권한을 끌 수 있습니다.")
                 .setNegativeButton("취소",null).setPositiveButton("동의하고 설정으로") { _, _ -> startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }.show()
         }
         button("가림막 표시 테스트 · 5초") {
@@ -107,7 +128,7 @@ class MainActivity : Activity() {
         button("지금 필터 중지") { enabled.isChecked=false; store.save(store.load().copy(enabled=false)); toast("필터를 중지했습니다") }
         button("PC 설정 JSON 가져오기") { startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply { type="*/*"; addCategory(Intent.CATEGORY_OPENABLE) },10) }
         button("설정 JSON 내보내기") { startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply { type="application/json"; addCategory(Intent.CATEGORY_OPENABLE); putExtra(Intent.EXTRA_TITLE,"kakao-filter-settings.json") },11) }
-        label("지원 범위\n카카오톡이 접근성에 제공한 이름과 화면 영역만 처리합니다. 버전/기기에 따라 발신자가 노출되지 않으면 가릴 수 없습니다. OCR·화면 캡처 대체 경로는 아직 없습니다. 스크롤 중 순간 노출을 막는 보안 기능이 아닙니다.\n\nAndroid 13 이상에서 권한이 제한되면 앱 정보의 메뉴에서 '제한된 설정 허용'을 확인하세요. 메뉴 위치는 제조사에 따라 다릅니다.\n\n설정은 기기 내부에 저장합니다. 앱을 삭제하면 사라지므로 필요하면 JSON을 내보내세요.")
+        label("지원 범위\n발신자 확인은 접근성 정보를 사용합니다. 메시지 기억 옵션은 흰색 수신/노란색 발신 말풍선을 화면 분석으로 보완합니다. 테마·글꼴·창 크기가 바뀌거나 메시지가 수정되면 새 확인이 필요합니다. 스크롤 중 순간 노출을 완전히 막는 보안 기능은 아닙니다.\n\nAndroid 13 이상에서 권한이 제한되면 앱 정보의 메뉴에서 '제한된 설정 허용'을 확인하세요. 메뉴 위치는 제조사에 따라 다릅니다.\n\n설정은 기기 내부에 저장합니다. 앱을 삭제하면 사라지므로 필요하면 JSON을 내보내세요.")
         setFields(store.load())
         enabled.setOnCheckedChangeListener { _, checked -> if (!checked) store.save(store.load().copy(enabled=false)) }
     }
@@ -126,8 +147,8 @@ class MainActivity : Activity() {
                 toast("선택한 이름을 추가했습니다. 실제 대상인지 확인한 뒤 설정 저장 및 적용을 누르세요.")
             }.setNegativeButton("취소",null).show()
     }
-    private fun readFields(): Rules = Rules(enabled.isChecked,names.text.lines().map(::normalized).filter { it.isNotEmpty() }.distinct(),rooms.text.lines().map(::normalized).filter { it.isNotEmpty() }.distinct(),allChats.isChecked,images.isChecked,if (mode.selectedItemPosition==1) "placeholder" else "opaque")
-    private fun setFields(r: Rules) { enabled.isChecked=r.enabled; names.setText(r.hiddenUsers.joinToString("\n")); rooms.setText(r.selectedChats.joinToString("\n")); allChats.isChecked=r.allChats; images.isChecked=r.hideImages; mode.setSelection(if (r.displayMode=="placeholder") 1 else 0) }
+    private fun readFields(): Rules = Rules(enabled.isChecked,names.text.lines().map(::normalized).filter { it.isNotEmpty() }.distinct(),rooms.text.lines().map(::normalized).filter { it.isNotEmpty() }.distinct(),allChats.isChecked,images.isChecked,if (mode.selectedItemPosition==1) "placeholder" else "opaque",remember.isChecked && screenAnalysisConsent && android.os.Build.VERSION.SDK_INT>=34)
+    private fun setFields(r: Rules) { enabled.isChecked=r.enabled; names.setText(r.hiddenUsers.joinToString("\n")); rooms.setText(r.selectedChats.joinToString("\n")); allChats.isChecked=r.allChats; images.isChecked=r.hideImages; mode.setSelection(if (r.displayMode=="placeholder") 1 else 0);remember.isChecked=r.rememberMessages && screenAnalysisConsent }
     private fun toast(text: String) { Toast.makeText(this,text,Toast.LENGTH_LONG).show() }
     private fun updateStatus() {
         if (::status.isInitialized) {
@@ -152,7 +173,7 @@ class MainActivity : Activity() {
                 var length=0
                 input.use { while (length<buffer.size) { val count=it.read(buffer,length,buffer.size-length); if (count<0) break; if (count==0) error("파일을 읽을 수 없습니다"); length+=count } }
                 require(length<=65536) { "64KB 이하의 설정 파일을 선택하세요" }
-                val imported=SettingsStore.decode(String(buffer,0,length,Charsets.UTF_8)).copy(enabled=false)
+                val imported=SettingsStore.decode(String(buffer,0,length,Charsets.UTF_8)).copy(enabled=false,rememberMessages=false)
                 setFields(imported); store.save(imported); toast("가져왔습니다. 내용을 확인한 뒤 필터를 켜고 저장하세요. 흐림 옵션은 완전 가림으로 변환합니다.")
             } else if (requestCode==12) {
                 val diagnostic=FilterStatus.diagnostics

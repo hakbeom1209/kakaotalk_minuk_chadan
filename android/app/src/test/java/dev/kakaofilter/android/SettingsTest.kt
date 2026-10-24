@@ -22,4 +22,10 @@ class SettingsTest {
         assertThrows(IllegalArgumentException::class.java) { SettingsStore.decode(" ".repeat(65537)) }
     }
     @Test fun missingSettingsStartDisabled() { assertFalse(SettingsStore.decode("{}").enabled) }
+    @Test fun screenAnalysisRequiresExplicitOptInAndRoundTrips() {
+        assertFalse(SettingsStore.decode("{}").rememberMessages)
+        val rules=Rules(rememberMessages=true)
+        assertEquals(rules,SettingsStore.decode(SettingsStore.encode(rules)))
+        assertThrows(RuntimeException::class.java) { SettingsStore.decode("""{"rememberMessages":"true"}""") }
+    }
 }

@@ -35,10 +35,12 @@ data class Rules(
     val selectedChats: List<String> = emptyList(),
     val allChats: Boolean = false,
     val hideImages: Boolean = true,
-    val displayMode: String = "opaque"
+    val displayMode: String = "opaque",
+    val rememberMessages: Boolean = false
 )
 
-data class FilterResult(val masks: List<Box>, val senders: Int, val matched: Int, val reason: String, val recognizedNames: List<String> = emptyList(), val unnamedProfiles: Int = 0, val clippedProfiles: Int = 0)
+data class SenderRegion(val bounds: Box, val hidden: Boolean)
+data class FilterResult(val masks: List<Box>, val senders: Int, val matched: Int, val reason: String, val recognizedNames: List<String> = emptyList(), val unnamedProfiles: Int = 0, val clippedProfiles: Int = 0, val regions: List<SenderRegion> = emptyList())
 
 /** Stateless: ownership is established again from the current accessibility tree. */
 object FilterEngine {
@@ -109,14 +111,18 @@ object FilterEngine {
             return false
         }
         val masks = mutableListOf<Box>()
+        val regions = mutableListOf<SenderRegion>()
         var matched = 0
         ordered.forEachIndexed { index, anchor ->
-            if (anchor.clipped || anchor.name == null || anchor.name !in hidden) return@forEachIndexed
-            matched++
+            if (anchor.clipped || anchor.name == null) return@forEachIndexed
+            val isHidden=anchor.name in hidden
+            if (isHidden) matched++
             val end = ordered.getOrNull(index+1)?.y?.minus(dp(2)) ?: viewport.bottom
             val start = maxOf(anchor.header.bottom, anchor.y+dp(16), viewport.top)
             if (end <= start) return@forEachIndexed
             val group = Box(viewport.left, start, viewport.right, minOf(end, viewport.bottom))
+            regions += SenderRegion(group,isHidden)
+            if (!isHidden) return@forEachIndexed
             visible.forEach { (nodeIndex, node) ->
                 val b = node.bounds
                 if (node.outgoing || nodeIndex in protectedAncestors || (!rules.hideImages && nodeIndex in mediaParents)) return@forEach
@@ -140,6 +146,6 @@ object FilterEngine {
             deduped.isEmpty() -> "대상 발신자는 있지만 접근성에서 메시지 영역을 찾지 못했습니다"
             else -> "접근성 정보로 확인한 현재 화면만 처리했습니다"
         }
-        return FilterResult(deduped, ordered.count { it.name != null }, matched, reason, ordered.mapNotNull { it.name }.distinct(), ordered.count { it.name == null }, ordered.count { it.clipped })
+        return FilterResult(deduped, ordered.count { it.name != null }, matched, reason, ordered.mapNotNull { it.name }.distinct(), ordered.count { it.name == null }, ordered.count { it.clipped }, regions)
     }
 }

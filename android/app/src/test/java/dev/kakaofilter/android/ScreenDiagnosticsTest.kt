@@ -1,6 +1,7 @@
 package dev.kakaofilter.android
 
 import dev.kakaofilter.core.Box
+import dev.kakaofilter.core.FilterResult
 import dev.kakaofilter.core.Rules
 import dev.kakaofilter.core.UiNode
 import org.json.JSONObject
@@ -30,5 +31,18 @@ class ScreenDiagnosticsTest {
     @Test fun diagnosticIsNotAcceptedAsSettings() {
         val data=ScreenDiagnostics.create(emptyList(),Rules(),2f,36,"test",false,false,"none")
         assertThrows(IllegalArgumentException::class.java) { SettingsStore.decode(data) }
+    }
+    @Test fun viewportMaskGeometryAndNonContentLabelsHelpLocateSkippedBubbles() {
+        val nodes=listOf(UiNode(Box(60,150,200,190),text="연속 메시지"),UiNode(Box(210,175,240,190),text="오전 1:31"),UiNode(Box(205,155,220,170),text="5"))
+        val viewport=Box(0,100,400,800)
+        val mask=Box(58,149,202,191)
+        val text=ScreenDiagnostics.create(nodes,Rules(),1f,36,"test",true,false,"result",viewport,FilterResult(listOf(mask),2,1,"result"))
+        val json=JSONObject(text)
+        assertEquals("[0,100,400,800]",json.getJSONArray("viewport").toString())
+        assertEquals("[58,149,202,191]",json.getJSONArray("masks").getJSONArray(0).toString())
+        assertEquals(1,json.getInt("matchedCount"))
+        assertTrue(json.getJSONArray("nodes").getJSONObject(1).getBoolean("textIsTime"))
+        assertTrue(json.getJSONArray("nodes").getJSONObject(2).getBoolean("textIsCounter"))
+        assertFalse(text.contains("연속 메시지"));assertFalse(text.contains("오전 1:31"))
     }
 }

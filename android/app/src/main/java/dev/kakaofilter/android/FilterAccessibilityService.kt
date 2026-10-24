@@ -11,11 +11,14 @@ import android.graphics.Rect
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import dev.kakaofilter.core.Box
 import dev.kakaofilter.core.FilterEngine
 import dev.kakaofilter.core.UiNode
+import dev.kakaofilter.core.ScanState
+import dev.kakaofilter.core.ScreenScanLoop
 import java.lang.ref.WeakReference
 
 object FilterStatus {
@@ -30,8 +33,10 @@ object FilterStatus {
     private fun notifyChanged() { listeners.toList().forEach { it() } }
     fun update(value: String) { if (message == value) return; message=value; notifyChanged() }
     fun result(value: String, names: List<String> = emptyList()) {
+        val visibleNames=if (showNames) names.toList() else emptyList()
+        if (lastResult==value && message==value && lastNames==visibleNames) return
         lastResult=value
-        lastNames=if (showNames) names.toList() else emptyList()
+        lastNames=visibleNames
         message=value
         notifyChanged()
     }
@@ -45,15 +50,16 @@ class FilterAccessibilityService : AccessibilityService() {
     private lateinit var store: SettingsStore
     private lateinit var overlay: MaskOverlay
     private val handler = Handler(Looper.getMainLooper())
-    private var scheduled = false
     private var testing = false
     private var receiverRegistered = false
-    private val scanner = Runnable { scheduled = false; scan() }
+    private val scans = ScreenScanLoop({ SystemClock.uptimeMillis() },
+        { task,delay -> handler.postDelayed(task,delay); Unit },
+        { handler.removeCallbacks(it) },{ scan() })
     private val endTest = Runnable { testing = false; overlay.clear(); schedule() }
     private val changed = SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> testing = false; handler.removeCallbacks(endTest); overlay.clear(); FilterStatus.settingsChanged(); schedule() }
     private val screen = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            testing = false; overlay.clear(); handler.removeCallbacks(scanner); handler.removeCallbacks(endTest); scheduled = false
+            testing = false; overlay.clear(); scans.stop(); handler.removeCallbacks(endTest)
             FilterStatus.update("화면 꺼짐 · 가림막 제거")
         }
     }
@@ -79,24 +85,33 @@ class FilterAccessibilityService : AccessibilityService() {
         if (!::overlay.isInitialized || testing) return
         // Ignore our status-label content updates to avoid an accessibility feedback loop.
         if (event?.packageName?.toString() == packageName && event.eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) return
-        // Any layout/content event can move messages. Clear stale masks before the next pass.
-        overlay.clear()
-        schedule()
+        // Clear stale geometry for layout changes, but keep masks on focus/hover events.
+        if (event?.packageName?.toString() != "com.kakao.talk" || event.eventType in setOf(
+                AccessibilityEvent.TYPE_VIEW_SCROLLED, AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED,
+                AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, AccessibilityEvent.TYPE_WINDOWS_CHANGED)) overlay.clear()
+        scans.request(kakaoEvent=event?.packageName?.toString()=="com.kakao.talk")
     }
     private fun schedule() {
-        if (!scheduled && !testing) { scheduled = true; handler.postDelayed(scanner, 24) }
+        if (!testing) scans.request()
     }
-    private fun scan() {
-        if (!::store.isInitialized || testing) return
+    private fun scan(): ScanState {
+        if (!::store.isInitialized || testing) return ScanState.INACTIVE
         val power = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
         val keyguard = getSystemService(Context.KEYGUARD_SERVICE) as android.app.KeyguardManager
-        if (!power.isInteractive || keyguard.isKeyguardLocked) { overlay.clear(); FilterStatus.update("화면 꺼짐/잠금 · 가림막 제거"); return }
+        if (!power.isInteractive || keyguard.isKeyguardLocked) { overlay.clear(); FilterStatus.update("화면 꺼짐/잠금 · 가림막 제거"); return ScanState.INACTIVE }
         val rules = store.load()
-        if (!rules.enabled && !FilterStatus.diagnosticPending) { overlay.clear(); FilterStatus.update("필터 저장 상태 OFF · 필터를 켜고 설정 저장을 누르세요"); return }
-        val root = rootInActiveWindow
-        if (root == null) { overlay.clear(); FilterStatus.update("전면 창을 확인할 수 없습니다"); return }
+        if (!rules.enabled && !FilterStatus.diagnosticPending) { overlay.clear(); FilterStatus.update("필터 저장 상태 OFF · 필터를 켜고 설정 저장을 누르세요"); return ScanState.INACTIVE }
+        // RecyclerView can reuse nodes during a fling. Request fresh framework data.
+        val root = try {
+            if (Build.VERSION.SDK_INT>=33) clearCache()
+            rootInActiveWindow
+        } catch (error: Exception) {
+            overlay.clear(); FilterStatus.update("전면 창 갱신 실패 (${error.javaClass.simpleName})")
+            return ScanState.UNAVAILABLE
+        }
+        if (root == null) { overlay.clear(); FilterStatus.update("전면 창을 확인할 수 없습니다"); return ScanState.UNAVAILABLE }
         try {
-            if (root.packageName?.toString() != "com.kakao.talk") { overlay.clear(); FilterStatus.update(if (FilterStatus.diagnosticPending) "진단 대기 · 카카오톡 채팅방을 열고 돌아오세요" else "현재 다른 앱/설정 화면 · 가림막 일시 중지"); return }
+            if (root.packageName?.toString() != "com.kakao.talk") { overlay.clear(); FilterStatus.update(if (FilterStatus.diagnosticPending) "진단 대기 · 카카오톡 채팅방을 열고 돌아오세요" else "현재 다른 앱/설정 화면 · 가림막 일시 중지"); return ScanState.INACTIVE }
             val nodes = mutableListOf<UiNode>()
             var truncated = false
             fun visit(node: AccessibilityNodeInfo, parent: Int, depth: Int, inheritedEditable: Boolean, inheritedOutgoing: Boolean) {
@@ -116,13 +131,13 @@ class FilterAccessibilityService : AccessibilityService() {
                 }
             }
             visit(root,-1,0,false,false)
-            fun diagnose(conversation: Boolean, reason: String) {
-                if (FilterStatus.diagnosticPending) FilterStatus.saveDiagnostics(ScreenDiagnostics.create(nodes,rules,resources.displayMetrics.density,Build.VERSION.SDK_INT,BuildConfig.VERSION_NAME,conversation,truncated,reason))
+            fun diagnose(conversation: Boolean, reason: String, viewport: Box?=null, result: dev.kakaofilter.core.FilterResult?=null) {
+                if (FilterStatus.diagnosticPending) FilterStatus.saveDiagnostics(ScreenDiagnostics.create(nodes,rules,resources.displayMetrics.density,Build.VERSION.SDK_INT,BuildConfig.VERSION_NAME,conversation,truncated,reason,viewport,result))
             }
             if (truncated || nodes.isEmpty()) {
                 overlay.clear()
                 val reason="화면 구조가 너무 크거나 불완전해 가리지 않았습니다"
-                diagnose(false,reason); FilterStatus.result(reason); return
+                diagnose(false,reason); FilterStatus.result(reason); return ScanState.KAKAO
             }
             val density = resources.displayMetrics.density
             val rootBox = nodes[0].bounds
@@ -130,7 +145,7 @@ class FilterAccessibilityService : AccessibilityService() {
             if (!conversation) {
                 overlay.clear()
                 val reason="채팅 입력창을 찾지 못함 · 화면 요소 ${nodes.size}개 / 편집 영역 ${nodes.count { it.visible && it.editable }}개"
-                diagnose(false,reason); FilterStatus.result(reason); return
+                diagnose(false,reason); FilterStatus.result(reason); return ScanState.KAKAO
             }
             val viewport = nodes.filter { !it.editable && (it.scrollable || it.className.endsWith("RecyclerView") || it.className.endsWith("ListView")) && it.bounds.width >= rootBox.width*.7 && it.bounds.height >= 120*density }
                 .maxByOrNull { it.bounds.area }?.bounds?.clip(rootBox)
@@ -139,17 +154,19 @@ class FilterAccessibilityService : AccessibilityService() {
             val titles = nodes.filter { it.role in titleIds && it.bounds.top < viewport.top && it.text.isNotBlank() }.map { it.text }.distinct()
             val room = titles.singleOrNull()
             val result = FilterEngine.evaluate(nodes,viewport,density,room,rules)
-            diagnose(true,result.reason)
             // A new application may have become active while Android supplied nodes.
             val current = rootInActiveWindow
             val stillCurrent = try { current?.packageName?.toString() == "com.kakao.talk" && current.windowId == root.windowId }
                 finally { @Suppress("DEPRECATION") current?.recycle() }
-            if (!stillCurrent) { overlay.clear(); return }
+            if (!stillCurrent) { overlay.clear(); return ScanState.UNAVAILABLE }
             overlay.show(result.masks,rules.displayMode)
+            diagnose(true,result.reason,viewport,result)
             FilterStatus.result("발신자 ${result.senders} · 대상 ${result.matched} · 가림막 ${result.masks.size} · 이름 미확인 프로필 ${result.unnamedProfiles} · 잘린 프로필 ${result.clippedProfiles}\n${result.reason}",result.recognizedNames)
+            return ScanState.KAKAO
         } catch (error: Exception) {
             overlay.clear()
             FilterStatus.result("화면 읽기/가림막 오류 (${error.javaClass.simpleName}) · 권한과 카카오톡 버전을 확인하세요")
+            return ScanState.UNAVAILABLE
         } finally { @Suppress("DEPRECATION") root.recycle() }
     }
     fun requestScreenDiagnostics() {
@@ -159,7 +176,7 @@ class FilterAccessibilityService : AccessibilityService() {
     fun testOverlay() {
         if (!::overlay.isInitialized) return
         testing = true
-        handler.removeCallbacks(scanner); scheduled = false
+        scans.stop()
         val dm = resources.displayMetrics
         try {
             overlay.show(listOf(Box((dm.widthPixels*.15f).toInt(),(dm.heightPixels*.3f).toInt(),(dm.widthPixels*.85f).toInt(),(dm.heightPixels*.3f+72*dm.density).toInt())),"placeholder")
@@ -172,8 +189,9 @@ class FilterAccessibilityService : AccessibilityService() {
         }
     }
     override fun onConfigurationChanged(newConfig: Configuration) { super.onConfigurationChanged(newConfig); if (::overlay.isInitialized) { overlay.clear(); schedule() } }
-    override fun onInterrupt() { testing=false; handler.removeCallbacks(scanner); handler.removeCallbacks(endTest); scheduled=false; if (::overlay.isInitialized) overlay.clear(); FilterStatus.update("접근성 서비스 일시 중단") }
+    override fun onInterrupt() { testing=false; scans.stop(); handler.removeCallbacks(endTest); if (::overlay.isInitialized) overlay.clear(); FilterStatus.update("접근성 서비스 일시 중단") }
     override fun onDestroy() {
+        scans.stop()
         handler.removeCallbacksAndMessages(null)
         if (::store.isInitialized) store.preferences.unregisterOnSharedPreferenceChangeListener(changed)
         if (::overlay.isInitialized) overlay.destroy()

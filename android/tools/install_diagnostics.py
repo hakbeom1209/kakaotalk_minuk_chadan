@@ -16,14 +16,14 @@ import urllib.request
 import xml.etree.ElementTree as ET
 import zipfile
 
-APK_NAME = "KakaoMessageFilter-Android-0.1.3.apk"
-APK_SHA256 = "08fb7560b0a0ac6a9b6e48f3f0055177a9e3f1c37a1559dd0996c793e0b8ca5d"
+APK_NAME = "KakaoMessageFilter-Android-0.1.4.apk"
+APK_SHA256 = "6b3ec0ab3f684fa8ae27896c2a17fe8955691a0bee96da2050e43ed9737035cf"
 REPOSITORY = "https://dl.google.com/android/repository/"
 
 
 def verify_apk(path):
     if hashlib.sha256(path.read_bytes()).hexdigest() != APK_SHA256:
-        raise RuntimeError("APK checksum differs. Use the unmodified 0.1.3 APK from the diagnostic bundle.")
+        raise RuntimeError("APK checksum differs. Use the unmodified 0.1.4 APK from the diagnostic bundle.")
     with zipfile.ZipFile(path) as archive:
         if archive.testzip() or "AndroidManifest.xml" not in archive.namelist() or "classes.dex" not in archive.namelist():
             raise RuntimeError("APK ZIP validation failed")
@@ -91,7 +91,7 @@ def main():
     folder = Path(__file__).resolve().parent
     apk = folder / APK_NAME
     verify_apk(apk)
-    print("APK checksum and ZIP: OK (0.1.3)")
+    print("APK checksum and ZIP: OK (0.1.4)")
     print("This tool attempts to install this APK on ONE USB-connected phone.")
     print("Connect the phone, enable USB debugging yourself, and approve its USB debugging dialog.")
     print("It does not uninstall apps or alter security/verification settings.")

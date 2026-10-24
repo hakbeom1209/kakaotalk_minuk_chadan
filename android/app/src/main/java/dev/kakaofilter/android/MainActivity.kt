@@ -26,6 +26,7 @@ class MainActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var recognized: TextView
     private lateinit var savedStatus: TextView
+    private lateinit var diagnosticStatus: TextView
     private val handler = Handler(Looper.getMainLooper())
     private val statusChanged: () -> Unit = { updateStatus() }
     private val refresh = object : Runnable { override fun run() { updateStatus(); handler.postDelayed(this,1000) } }
@@ -57,6 +58,16 @@ class MainActivity : Activity() {
         status=label("접근성 서비스 확인 중")
         savedStatus=label("")
         recognized=label("")
+        diagnosticStatus=label("")
+        button("문제 화면 진단 시작") {
+            val service=FilterStatus.service?.get()
+            if (service==null) toast("먼저 접근성 서비스를 켜주세요")
+            else { service.requestScreenDiagnostics(); toast("카카오톡에서 안 가려지는 메시지를 보이게 한 뒤 돌아와 바로 아래의 진단 파일 저장을 누르세요. 원문은 기록하지 않습니다.") }
+        }
+        button("진단 파일 저장 (메시지 원문 제외)") {
+            if (FilterStatus.diagnostics.isEmpty()) toast("먼저 진단 시작을 누르고 카카오톡 채팅방을 열어주세요")
+            else startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply { type="application/json"; addCategory(Intent.CATEGORY_OPENABLE); putExtra(Intent.EXTRA_TITLE,"kakao-screen-structure.json") },12)
+        }
         CheckBox(this).apply {
             text="인식한 닉네임 표시 (진단용 · 메모리에만 유지)"
             isChecked=FilterStatus.showNames
@@ -94,15 +105,6 @@ class MainActivity : Activity() {
             }.onFailure { toast(it.message ?: "설정 오류") }
         }
         button("지금 필터 중지") { enabled.isChecked=false; store.save(store.load().copy(enabled=false)); toast("필터를 중지했습니다") }
-        button("카카오톡 화면 구조 진단 시작") {
-            val service=FilterStatus.service?.get()
-            if (service==null) toast("먼저 접근성 서비스를 켜주세요")
-            else { service.requestScreenDiagnostics(); toast("카카오톡 채팅방을 연 뒤 이 앱으로 돌아와 진단 파일을 저장하세요. 메시지 원문은 기록하지 않습니다.") }
-        }
-        button("진단 파일 저장 (메시지 원문 제외)") {
-            if (FilterStatus.diagnostics.isEmpty()) toast("먼저 진단 시작을 누르고 카카오톡 채팅방을 열어주세요")
-            else startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply { type="application/json"; addCategory(Intent.CATEGORY_OPENABLE); putExtra(Intent.EXTRA_TITLE,"kakao-screen-structure.json") },12)
-        }
         button("PC 설정 JSON 가져오기") { startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply { type="*/*"; addCategory(Intent.CATEGORY_OPENABLE) },10) }
         button("설정 JSON 내보내기") { startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply { type="application/json"; addCategory(Intent.CATEGORY_OPENABLE); putExtra(Intent.EXTRA_TITLE,"kakao-filter-settings.json") },11) }
         label("지원 범위\n카카오톡이 접근성에 제공한 이름과 화면 영역만 처리합니다. 버전/기기에 따라 발신자가 노출되지 않으면 가릴 수 없습니다. OCR·화면 캡처 대체 경로는 아직 없습니다. 스크롤 중 순간 노출을 막는 보안 기능이 아닙니다.\n\nAndroid 13 이상에서 권한이 제한되면 앱 정보의 메뉴에서 '제한된 설정 허용'을 확인하세요. 메뉴 위치는 제조사에 따라 다릅니다.\n\n설정은 기기 내부에 저장합니다. 앱을 삭제하면 사라지므로 필요하면 JSON을 내보내세요.")
@@ -134,6 +136,7 @@ class MainActivity : Activity() {
                 FilterStatus.message,FilterStatus.lastResult.ifEmpty { getString(R.string.last_none) })
             val rules=store.load()
             savedStatus.text=getString(R.string.saved_line,getString(if (rules.enabled) R.string.status_enabled else R.string.status_disabled),rules.hiddenUsers.size,if (rules.allChats) "모든 방" else "선택한 방")
+            diagnosticStatus.text=if (FilterStatus.diagnostics.isNotEmpty()) getString(R.string.diagnostic_ready) else ""
             recognized.text=if (FilterStatus.showNames) getString(R.string.recognized_line,FilterStatus.lastNames.joinToString(" / ") { "「$it」" }.ifEmpty { "아직 없음 · 카카오톡 채팅방을 열어주세요" }) else ""
         }
     }

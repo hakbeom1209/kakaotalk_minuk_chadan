@@ -7,6 +7,7 @@
     <string name="last_none">없음</string>
     <string name="saved_line">저장된 필터 %1$s · 숨김 이름 %2$d개 · %3$s</string>
     <string name="recognized_line">실제로 읽은 발신자: %1$s</string>
+    <string name="diagnostic_ready">진단 준비됨 · 아래의 진단 파일 저장을 눌러주세요</string>
     <style name="AppTheme" parent="android:style/Theme.Material.Light.NoActionBar">
         <item name="android:fontFamily">sans</item>
         <item name="android:colorAccent">#356859</item>

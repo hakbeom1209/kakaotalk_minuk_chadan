@@ -21,10 +21,24 @@ import java.lang.ref.WeakReference
 object FilterStatus {
     var message = "접근성 서비스를 켜주세요"; private set
     var lastResult = ""; private set
-    fun result(value: String) { lastResult = value; update(value) }
+    var lastNames = emptyList<String>(); private set
+    var showNames = false; private set
+    var diagnostics = ""; private set
+    var diagnosticPending = false; private set
     var service: WeakReference<FilterAccessibilityService>? = null
     val listeners = mutableSetOf<() -> Unit>()
-    fun update(value: String) { if (message == value) return; message = value; listeners.toList().forEach { it() } }
+    private fun notifyChanged() { listeners.toList().forEach { it() } }
+    fun update(value: String) { if (message == value) return; message=value; notifyChanged() }
+    fun result(value: String, names: List<String> = emptyList()) {
+        lastResult=value
+        lastNames=if (showNames) names.toList() else emptyList()
+        message=value
+        notifyChanged()
+    }
+    fun settingsChanged() { lastResult=""; lastNames=emptyList(); diagnostics=""; diagnosticPending=false; update("설정 저장됨 · 카카오톡 채팅방을 열면 새 설정을 적용합니다") }
+    fun namesVisible(value: Boolean) { showNames=value; if (!value) lastNames=emptyList(); notifyChanged() }
+    fun requestDiagnostics() { diagnostics=""; diagnosticPending=true; update("진단 대기 · 카카오톡 채팅방을 열고 돌아오세요") }
+    fun saveDiagnostics(value: String) { diagnostics=value; diagnosticPending=false; notifyChanged() }
 }
 
 class FilterAccessibilityService : AccessibilityService() {
@@ -36,7 +50,7 @@ class FilterAccessibilityService : AccessibilityService() {
     private var receiverRegistered = false
     private val scanner = Runnable { scheduled = false; scan() }
     private val endTest = Runnable { testing = false; overlay.clear(); schedule() }
-    private val changed = SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> testing = false; handler.removeCallbacks(endTest); overlay.clear(); schedule() }
+    private val changed = SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> testing = false; handler.removeCallbacks(endTest); overlay.clear(); FilterStatus.settingsChanged(); schedule() }
     private val screen = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             testing = false; overlay.clear(); handler.removeCallbacks(scanner); handler.removeCallbacks(endTest); scheduled = false
@@ -44,6 +58,10 @@ class FilterAccessibilityService : AccessibilityService() {
         }
     }
     override fun onServiceConnected() {
+        serviceInfo?.let { info ->
+            info.flags = info.flags or android.accessibilityservice.AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or android.accessibilityservice.AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS or android.accessibilityservice.AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS
+            serviceInfo=info
+        }
         store = SettingsStore(this)
         if (::overlay.isInitialized) overlay.destroy()
         overlay = MaskOverlay(this)
@@ -74,11 +92,11 @@ class FilterAccessibilityService : AccessibilityService() {
         val keyguard = getSystemService(Context.KEYGUARD_SERVICE) as android.app.KeyguardManager
         if (!power.isInteractive || keyguard.isKeyguardLocked) { overlay.clear(); FilterStatus.update("화면 꺼짐/잠금 · 가림막 제거"); return }
         val rules = store.load()
-        if (!rules.enabled) { overlay.clear(); FilterStatus.update("필터 꺼짐"); return }
+        if (!rules.enabled && !FilterStatus.diagnosticPending) { overlay.clear(); FilterStatus.update("필터 저장 상태 OFF · 필터를 켜고 설정 저장을 누르세요"); return }
         val root = rootInActiveWindow
         if (root == null) { overlay.clear(); FilterStatus.update("전면 창을 확인할 수 없습니다"); return }
         try {
-            if (root.packageName?.toString() != "com.kakao.talk") { overlay.clear(); FilterStatus.update("대기 · 카카오톡이 전면에 없습니다"); return }
+            if (root.packageName?.toString() != "com.kakao.talk") { overlay.clear(); FilterStatus.update(if (FilterStatus.diagnosticPending) "진단 대기 · 카카오톡 채팅방을 열고 돌아오세요" else "현재 다른 앱/설정 화면 · 가림막 일시 중지"); return }
             val nodes = mutableListOf<UiNode>()
             var truncated = false
             fun visit(node: AccessibilityNodeInfo, parent: Int, depth: Int, inheritedEditable: Boolean, inheritedOutgoing: Boolean) {
@@ -98,11 +116,22 @@ class FilterAccessibilityService : AccessibilityService() {
                 }
             }
             visit(root,-1,0,false,false)
-            if (truncated || nodes.isEmpty()) { overlay.clear(); FilterStatus.update("화면 구조가 너무 크거나 불완전해 가리지 않았습니다"); return }
+            fun diagnose(conversation: Boolean, reason: String) {
+                if (FilterStatus.diagnosticPending) FilterStatus.saveDiagnostics(ScreenDiagnostics.create(nodes,rules,resources.displayMetrics.density,Build.VERSION.SDK_INT,BuildConfig.VERSION_NAME,conversation,truncated,reason))
+            }
+            if (truncated || nodes.isEmpty()) {
+                overlay.clear()
+                val reason="화면 구조가 너무 크거나 불완전해 가리지 않았습니다"
+                diagnose(false,reason); FilterStatus.result(reason); return
+            }
             val density = resources.displayMetrics.density
             val rootBox = nodes[0].bounds
             val conversation = nodes.any { it.visible && it.editable && it.bounds.top > rootBox.top+rootBox.height*.55 && it.bounds.width > rootBox.width*.3 }
-            if (!conversation) { overlay.clear(); FilterStatus.update("대기 · 채팅 입력창이 보이는 대화방에서만 작동합니다"); return }
+            if (!conversation) {
+                overlay.clear()
+                val reason="채팅 입력창을 찾지 못함 · 화면 요소 ${nodes.size}개 / 편집 영역 ${nodes.count { it.visible && it.editable }}개"
+                diagnose(false,reason); FilterStatus.result(reason); return
+            }
             val viewport = nodes.filter { !it.editable && (it.scrollable || it.className.endsWith("RecyclerView") || it.className.endsWith("ListView")) && it.bounds.width >= rootBox.width*.7 && it.bounds.height >= 120*density }
                 .maxByOrNull { it.bounds.area }?.bounds?.clip(rootBox)
                 ?: Box(rootBox.left,rootBox.top+(96*density).toInt(),rootBox.right,rootBox.bottom-(80*density).toInt())
@@ -110,17 +139,22 @@ class FilterAccessibilityService : AccessibilityService() {
             val titles = nodes.filter { it.role in titleIds && it.bounds.top < viewport.top && it.text.isNotBlank() }.map { it.text }.distinct()
             val room = titles.singleOrNull()
             val result = FilterEngine.evaluate(nodes,viewport,density,room,rules)
+            diagnose(true,result.reason)
             // A new application may have become active while Android supplied nodes.
             val current = rootInActiveWindow
             val stillCurrent = try { current?.packageName?.toString() == "com.kakao.talk" && current.windowId == root.windowId }
                 finally { @Suppress("DEPRECATION") current?.recycle() }
             if (!stillCurrent) { overlay.clear(); return }
             overlay.show(result.masks,rules.displayMode)
-            FilterStatus.result("발신자 ${result.senders} · 대상 ${result.matched} · 가림막 ${result.masks.size}\n${result.reason}")
+            FilterStatus.result("발신자 ${result.senders} · 대상 ${result.matched} · 가림막 ${result.masks.size} · 이름 미확인 프로필 ${result.unnamedProfiles} · 잘린 프로필 ${result.clippedProfiles}\n${result.reason}",result.recognizedNames)
         } catch (error: Exception) {
             overlay.clear()
-            FilterStatus.update("화면 읽기/가림막 오류 (${error.javaClass.simpleName}) · 권한과 카카오톡 버전을 확인하세요")
+            FilterStatus.result("화면 읽기/가림막 오류 (${error.javaClass.simpleName}) · 권한과 카카오톡 버전을 확인하세요")
         } finally { @Suppress("DEPRECATION") root.recycle() }
+    }
+    fun requestScreenDiagnostics() {
+        FilterStatus.requestDiagnostics()
+        schedule()
     }
     fun testOverlay() {
         if (!::overlay.isInitialized) return

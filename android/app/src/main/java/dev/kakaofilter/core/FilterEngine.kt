@@ -38,7 +38,7 @@ data class Rules(
     val displayMode: String = "opaque"
 )
 
-data class FilterResult(val masks: List<Box>, val senders: Int, val matched: Int, val reason: String)
+data class FilterResult(val masks: List<Box>, val senders: Int, val matched: Int, val reason: String, val recognizedNames: List<String> = emptyList(), val unnamedProfiles: Int = 0, val clippedProfiles: Int = 0)
 
 /** Stateless: ownership is established again from the current accessibility tree. */
 object FilterEngine {
@@ -104,7 +104,13 @@ object FilterEngine {
         }
         val deduped = mutableListOf<Box>()
         masks.distinct().sortedByDescending { it.area }.forEach { box -> if (deduped.none { it.contains(box) }) deduped += box }
-        val reason = if (ordered.isEmpty()) "카카오톡이 발신자 정보를 제공하지 않거나 채팅 화면이 아닙니다" else "접근성 정보로 확인한 현재 화면만 처리했습니다"
-        return FilterResult(deduped, ordered.count { it.name != null }, matched, reason)
+        val reason = when {
+            ordered.isEmpty() -> "카카오톡이 발신자 정보를 제공하지 않거나 채팅 화면이 아닙니다"
+            matched == 0 && ordered.any { it.clipped && it.name?.let(hidden::contains) == true } -> "숨김 이름이 보이지만 프로필이 잘려 현재 메시지 소유자를 확정하지 않았습니다"
+            matched == 0 -> "읽은 발신자와 숨김 목록에 일치하는 사용자가 없습니다"
+            deduped.isEmpty() -> "대상 발신자는 있지만 접근성에서 메시지 영역을 찾지 못했습니다"
+            else -> "접근성 정보로 확인한 현재 화면만 처리했습니다"
+        }
+        return FilterResult(deduped, ordered.count { it.name != null }, matched, reason, ordered.mapNotNull { it.name }.distinct(), ordered.count { it.name == null }, ordered.count { it.clipped })
     }
 }

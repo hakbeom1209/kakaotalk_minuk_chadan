@@ -67,4 +67,19 @@ class FilterEngineTest {
         assertEquals(first.size,second.size)
         assertEquals(first.map { it.top+30 }.sorted(),second.map { it.top }.sorted())
     }
+    @Test fun actualRecognizedNamesAreAvailableForExplicitUserSelection() {
+        val result=FilterEngine.evaluate(scene(),viewport,1f,null,rules.copy(hiddenUsers=listOf("입력오타")))
+        assertEquals(0,result.matched)
+        assertEquals(listOf("정민욱","친구"),result.recognizedNames)
+        assertEquals(1,result.unnamedProfiles)
+        val selected=rules.copy(hiddenUsers=listOf(result.recognizedNames[0]))
+        assertEquals(3,FilterEngine.evaluate(scene(),viewport,1f,null,selected).masks.size)
+    }
+    @Test fun clippedKnownSenderIsDistinguishedFromANameMismatch() {
+        val nodes=listOf(node(Box(12,90,52,130),id="profile",media=true),node(Box(60,95,110,113),"정민욱","nickname"),node(Box(60,135,300,170),"연속 메시지"))
+        val result=FilterEngine.evaluate(nodes,viewport,1f,null,rules)
+        assertEquals(1,result.senders);assertEquals(0,result.matched);assertEquals(1,result.clippedProfiles)
+        assertTrue(result.reason.contains("프로필이 잘려"))
+        assertEquals(listOf("정민욱"),result.recognizedNames)
+    }
 }

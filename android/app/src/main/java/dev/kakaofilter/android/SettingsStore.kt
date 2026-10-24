@@ -14,6 +14,7 @@ class SettingsStore(context: Context) {
         fun decode(text: String): Rules {
             require(text.toByteArray().size <= 65536) { "설정 파일은 64KB 이하여야 합니다" }
             val json = JSONObject(text)
+            require(!(json.has("schema") && json.has("nodes"))) { "진단 파일은 설정 파일로 가져올 수 없습니다" }
             fun list(key: String): List<String> {
                 val array = json.optJSONArray(key) ?: if (json.has(key)) error("$key: 문자열 목록이 필요합니다") else JSONArray()
                 require(array.length() <= 200) { "$key: 최대 200개" }

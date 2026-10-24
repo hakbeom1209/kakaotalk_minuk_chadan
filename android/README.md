@@ -35,6 +35,14 @@ Android 8.0(API 26) 이상을 대상으로 만든 **접근성 기반 시제품**
 adb install -r KakaoMessageFilter-Android-0.1.1.apk
 ```
 
+### Windows USB 설치 진단 도구
+
+[설치 진단 ZIP 파일 페이지](https://github.com/hakbeom1209/kakaotalk_minuk_chadan/blob/main/android/downloads/KakaoMessageFilter-Install-Check-Windows.zip)에서 다운로드 버튼을 누르세요. APK는 기존 0.1.1과 동일하며 설치 오류 확인용 도구를 추가한 것입니다.
+
+Windows PC에서 압축을 모두 풀고 `INSTALL-CHECK-README.txt`를 읽으세요. Python 3.11 이상이 필요합니다. 휴대폰의 USB 디버깅을 직접 켜고 케이블로 한 대만 연결한 뒤 `install-check.cmd`를 실행합니다. 휴대폰의 디버깅 승인 후 실제 APK 설치를 시도하고 `INSTALL_RESULT.txt`에 결과를 남깁니다. `Result: SUCCESS`이면 설치가 완료된 것입니다. 실패하면 `INSTALL_FAILED_...` 또는 `INSTALL_PARSE_FAILED_...` 줄이 원인 확인에 필요합니다.
+
+도구는 공식 Google SDK 메타데이터와 체크섬으로 Windows platform-tools를 검증합니다. 기기 모델·Android/SDK 버전·해당 APK 설치 결과를 로컬 파일로 기록하며 결과를 자동 전송하지 않습니다. 보안 설정을 변경하거나 앱을 삭제하지 않습니다. 이 클라우드에서는 실제 USB 휴대폰 실행을 검증하지 못했습니다. [도구 소스](tools/install_diagnostics.py)도 확인할 수 있습니다.
+
 APK SHA-256은 [downloads/SHA256SUMS](downloads/SHA256SUMS)에 있습니다. 실제 갤럭시 설치 시험은 이 환경에서 실행하지 못했습니다.
 
 ## 현재 구현

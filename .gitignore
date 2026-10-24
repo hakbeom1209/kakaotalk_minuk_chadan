@@ -7,3 +7,9 @@ build/
 dist/
 *.spec
 settings.json
+# Android local tools and signing keys
+android/.gradle/
+android/local.properties
+android/**/build/
+*.jks
+*.keystore

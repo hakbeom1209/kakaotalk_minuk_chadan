@@ -1,0 +1,123 @@
+package dev.kakaofilter.android
+
+import android.app.Activity
+import android.app.AlertDialog
+import android.content.ComponentName
+import android.content.Intent
+import android.graphics.Color
+import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.provider.Settings
+import android.view.View
+import android.view.WindowInsets
+import android.widget.*
+import dev.kakaofilter.core.Rules
+import dev.kakaofilter.core.normalized
+
+class MainActivity : Activity() {
+    private lateinit var store: SettingsStore
+    private lateinit var enabled: Switch
+    private lateinit var allChats: CheckBox
+    private lateinit var images: CheckBox
+    private lateinit var names: EditText
+    private lateinit var rooms: EditText
+    private lateinit var mode: Spinner
+    private lateinit var status: TextView
+    private val handler = Handler(Looper.getMainLooper())
+    private val statusChanged: () -> Unit = { updateStatus() }
+    private val refresh = object : Runnable { override fun run() { updateStatus(); handler.postDelayed(this,1000) } }
+    private fun dp(value: Int) = (value*resources.displayMetrics.density).toInt()
+    private fun accessibilityEnabled(): Boolean {
+        val component = ComponentName(this,FilterAccessibilityService::class.java)
+        return Settings.Secure.getString(contentResolver,Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES).orEmpty().split(':').any { ComponentName.unflattenFromString(it) == component }
+    }
+    override fun onCreate(state: Bundle?) {
+        super.onCreate(state)
+        store = SettingsStore(this)
+        val scroll = ScrollView(this)
+        val panel = LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setBackgroundColor(Color.rgb(247,249,246)); setPadding(dp(20),dp(20),dp(20),dp(24)) }
+        scroll.addView(panel)
+        scroll.setOnApplyWindowInsetsListener { _, insets ->
+            @Suppress("DEPRECATION")
+            val edges = if (android.os.Build.VERSION.SDK_INT>=30) {
+                val bars=insets.getInsets(WindowInsets.Type.systemBars())
+                intArrayOf(bars.left,bars.top,bars.right,bars.bottom)
+            } else intArrayOf(insets.systemWindowInsetLeft,insets.systemWindowInsetTop,insets.systemWindowInsetRight,insets.systemWindowInsetBottom)
+            panel.setPadding(dp(20)+edges[0],dp(20)+edges[1],dp(20)+edges[2],dp(24)+edges[3])
+            insets
+        }
+        setContentView(scroll)
+        fun label(text: String, size: Float=14f) = TextView(this).apply { this.text=text; textSize=size; setTextColor(Color.rgb(34,49,41)); setPadding(0,dp(10),0,dp(8)); panel.addView(this) }
+        fun button(text: String, action: () -> Unit) = Button(this).apply { this.text=text; isAllCaps=false; panel.addView(this,LinearLayout.LayoutParams(-1,-2)); setOnClickListener { action() } }
+        label("카카오 메시지 필터",25f)
+        label("Android 0.1.0 · 접근성 기반 실험 버전\n내 화면에만 가림막을 표시합니다. 서버 메시지는 바뀌지 않습니다.")
+        status=label("접근성 서비스 확인 중")
+        label("접근성 권한을 켜면 카카오톡이 전면에 있을 때 발신자와 메시지 위치를 읽습니다. 화면 촬영·원문 저장·외부 전송은 하지 않습니다. 가림막은 터치와 스크롤을 통과시킵니다.")
+        button("동의하고 접근성 설정 열기") {
+            AlertDialog.Builder(this).setTitle("접근성 사용 안내")
+                .setMessage("이 앱은 카카오톡 화면의 접근성 정보(발신자, 메시지 위치, 채팅방 제목)를 읽어 지정한 메시지 위에 가림막을 표시합니다. 다른 앱의 대화는 읽지 않습니다. 메시지를 저장하거나 전송하지 않습니다.\n\n다음 설정 화면에서 '카카오 메시지 필터' 서비스를 직접 켜주세요. 언제든 이 화면에서 중지하거나 시스템 설정에서 권한을 끌 수 있습니다.")
+                .setNegativeButton("취소",null).setPositiveButton("동의하고 설정으로") { _, _ -> startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }.show()
+        }
+        button("가림막 표시 테스트 · 5초") {
+            val service=FilterStatus.service?.get()
+            if (service==null) toast("먼저 접근성 서비스를 켜주세요") else service.testOverlay()
+        }
+        enabled=Switch(this).apply { text="필터 켜기 (저장 후 적용)"; panel.addView(this) }
+        label("숨길 닉네임 · 한 줄에 한 명")
+        names=EditText(this).apply { hint="정민욱"; minLines=3; gravity=android.view.Gravity.TOP; inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE; panel.addView(this) }
+        label("동명이인은 구별할 수 없습니다. 발신자 정보가 없는 메시지는 추측하지 않습니다.")
+        allChats=CheckBox(this).apply { text="모든 카카오톡 채팅방에 적용 (개인방 포함)"; panel.addView(this) }
+        label("선택할 채팅방 제목 · 한 줄에 하나, 정확히 입력")
+        rooms=EditText(this).apply { minLines=2; gravity=android.view.Gravity.TOP; inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE; panel.addView(this) }
+        label("표시 방식")
+        mode=Spinner(this).apply { adapter=ArrayAdapter(this@MainActivity,android.R.layout.simple_spinner_dropdown_item,listOf("완전 가림","숨긴 메시지 안내문")); panel.addView(this) }
+        images=CheckBox(this).apply { text="같은 발신자의 사진·이모티콘도 가리기"; panel.addView(this) }
+        button("설정 저장 및 적용") {
+            runCatching {
+                val rules=readFields()
+                require(!rules.enabled || rules.hiddenUsers.isNotEmpty()) { "숨길 닉네임을 입력하세요" }
+                require(!rules.enabled || rules.allChats || rules.selectedChats.isNotEmpty()) { "채팅방 제목을 입력하거나 모든 채팅방 적용을 선택하세요" }
+                store.save(rules)
+                toast(if (accessibilityEnabled()) "저장했습니다. 카카오톡 채팅방을 앞으로 가져오세요" else "저장했습니다. 접근성 서비스도 켜주세요")
+            }.onFailure { toast(it.message ?: "설정 오류") }
+        }
+        button("지금 필터 중지") { enabled.isChecked=false; store.save(store.load().copy(enabled=false)); toast("필터를 중지했습니다") }
+        button("PC 설정 JSON 가져오기") { startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply { type="*/*"; addCategory(Intent.CATEGORY_OPENABLE) },10) }
+        button("설정 JSON 내보내기") { startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply { type="application/json"; addCategory(Intent.CATEGORY_OPENABLE); putExtra(Intent.EXTRA_TITLE,"kakao-filter-settings.json") },11) }
+        label("지원 범위\n카카오톡이 접근성에 제공한 이름과 화면 영역만 처리합니다. 버전/기기에 따라 발신자가 노출되지 않으면 가릴 수 없습니다. OCR·화면 캡처 대체 경로는 아직 없습니다. 스크롤 중 순간 노출을 막는 보안 기능이 아닙니다.\n\nAndroid 13 이상에서 권한이 제한되면 앱 정보의 메뉴에서 '제한된 설정 허용'을 확인하세요. 메뉴 위치는 제조사에 따라 다릅니다.\n\n설정은 기기 내부에 저장합니다. 앱을 삭제하면 사라지므로 필요하면 JSON을 내보내세요.")
+        setFields(store.load())
+        enabled.setOnCheckedChangeListener { _, checked -> if (!checked) store.save(store.load().copy(enabled=false)) }
+    }
+    private fun readFields(): Rules = Rules(enabled.isChecked,names.text.lines().map(::normalized).filter { it.isNotEmpty() }.distinct(),rooms.text.lines().map(::normalized).filter { it.isNotEmpty() }.distinct(),allChats.isChecked,images.isChecked,if (mode.selectedItemPosition==1) "placeholder" else "opaque")
+    private fun setFields(r: Rules) { enabled.isChecked=r.enabled; names.setText(r.hiddenUsers.joinToString("\n")); rooms.setText(r.selectedChats.joinToString("\n")); allChats.isChecked=r.allChats; images.isChecked=r.hideImages; mode.setSelection(if (r.displayMode=="placeholder") 1 else 0) }
+    private fun toast(text: String) { Toast.makeText(this,text,Toast.LENGTH_LONG).show() }
+    private fun updateStatus() {
+        if (::status.isInitialized) status.text=getString(R.string.status_line,
+            getString(if (accessibilityEnabled()) R.string.status_enabled else R.string.status_disabled),
+            FilterStatus.message,FilterStatus.lastResult.ifEmpty { getString(R.string.last_none) })
+    }
+    @Deprecated("Platform result API")
+    override fun onActivityResult(requestCode: Int,resultCode: Int,data: Intent?) {
+        super.onActivityResult(requestCode,resultCode,data)
+        if (resultCode!=RESULT_OK) return
+        val uri=data?.data ?: return
+        runCatching {
+            if (requestCode==10) {
+                val input=contentResolver.openInputStream(uri) ?: error("파일을 열 수 없습니다")
+                val buffer=ByteArray(65537)
+                var length=0
+                input.use { while (length<buffer.size) { val count=it.read(buffer,length,buffer.size-length); if (count<0) break; if (count==0) error("파일을 읽을 수 없습니다"); length+=count } }
+                require(length<=65536) { "64KB 이하의 설정 파일을 선택하세요" }
+                val imported=SettingsStore.decode(String(buffer,0,length,Charsets.UTF_8)).copy(enabled=false)
+                setFields(imported); store.save(imported); toast("가져왔습니다. 내용을 확인한 뒤 필터를 켜고 저장하세요. 흐림 옵션은 완전 가림으로 변환합니다.")
+            } else if (requestCode==11) {
+                val output=contentResolver.openOutputStream(uri,"wt") ?: error("파일을 저장할 수 없습니다")
+                output.use { it.write(SettingsStore.encode(readFields()).toByteArray(Charsets.UTF_8)) }
+                toast("설정을 내보냈습니다")
+            }
+        }.onFailure { toast(it.message ?: "파일 처리 실패") }
+    }
+    override fun onResume() { super.onResume(); FilterStatus.listeners+=statusChanged; handler.post(refresh) }
+    override fun onPause() { handler.removeCallbacks(refresh); FilterStatus.listeners-=statusChanged; super.onPause() }
+}

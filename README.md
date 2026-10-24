@@ -1,10 +1,18 @@
-# Kakao Message Filter · Windows 시제품
+# Kakao Message Filter · Windows / Android
 
 카카오톡 PC 채팅창에서 지정한 닉네임의 **사진·말풍선·연속 메시지 그룹** 위에 클릭이 통과되는 가림막을 표시합니다. Python 3.11 이상, Win32 API, Tesseract OCR, OpenCV를 사용합니다. 서버 메시지나 카카오톡 내부 파일은 수정하지 않습니다.
 
 **실험 단계입니다. 실제 카카오톡에서의 정확도는 아직 검증하지 않았습니다.** Linux 클라우드에서는 실제 한국어/영어 OCR과 필터 로직을 검사했습니다. Windows 캡처·클릭 통과·배율·창 전환은 실제 PC 검증이 필요합니다. Android는 포함하지 않습니다.
 
-## 다운로드
+## Android 앱 다운로드
+
+**[Android 테스트 APK 다운로드](https://github.com/hakbeom1209/kakaotalk_minuk_chadan/raw/refs/heads/main/android/downloads/KakaoMessageFilter-Android-debug.apk)** · [설치·사용 설명](android/README.md) · [Android 소스](android/)
+
+Android 8.0 이상에서 설치할 수 있는 접근성 기반 시제품입니다. 앱에서 안내를 확인하고 접근성 서비스를 켠 뒤 닉네임을 등록하세요. PC와 같은 JSON 설정을 가져오고 내보낼 수 있습니다. 별도 화면 녹화나 일반 오버레이 권한은 필요하지 않습니다.
+
+APK 빌드·서명 검증, 단위 테스트 15개, Android Lint 검사를 통과했습니다. **실제 Android 카카오톡에서의 동작은 미검증이며, 접근성에 발신자가 제공되지 않으면 가릴 수 없습니다.** Android판은 아직 OCR을 사용하지 않습니다. 이 APK는 개발용 서명이며 배포용 Google Play 앱이 아닙니다.
+
+## Windows 소스 다운로드
 
 **[소스코드 ZIP 다운로드](https://github.com/hakbeom1209/kakaotalk_minuk_chadan/archive/refs/heads/main.zip)**
 

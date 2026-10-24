@@ -1,4 +1,4 @@
-# 카카오 메시지 필터 · Android 0.1.2
+# 카카오 메시지 필터 · Android 0.1.3
 
 Android 8.0(API 26) 이상을 대상으로 만든 **접근성 기반 시제품**입니다. PC와 같은 숨김 목록/채팅방 설정을 사용하지만 Android의 접근성 서비스와 가림막으로 별도 구현했습니다. 카카오톡 내부 파일이나 서버 메시지를 바꾸지 않습니다.
 
@@ -6,7 +6,7 @@ Android 8.0(API 26) 이상을 대상으로 만든 **접근성 기반 시제품**
 
 ## APK 설치
 
-[Android APK 파일 페이지](https://github.com/hakbeom1209/kakaotalk_minuk_chadan/blob/main/android/downloads/KakaoMessageFilter-Android-0.1.2.apk)
+[Android APK 파일 페이지](https://github.com/hakbeom1209/kakaotalk_minuk_chadan/blob/main/android/downloads/KakaoMessageFilter-Android-0.1.3.apk)
 
 먼저 **Chrome에서 저장소에 접근 가능한 GitHub 계정(소유자: `hakbeom1209`)으로 로그인**하세요. 위 링크는 파일 페이지입니다. 그 안의 **↓ Download raw file**, **Download**, 또는 메뉴의 다운로드 항목을 누르세요. 비공개 저장소에서는 로그인되지 않은 파일 페이지와 정적 원본 주소가 404로 표시될 수 있습니다. 제작 환경에서 원본 파일에 접근할 수 있다는 사실만으로 휴대폰의 공개 다운로드 가능 여부를 확인할 수는 없습니다. 저장소를 공개로 바꿀 필요는 없습니다.
 
@@ -25,19 +25,19 @@ Android 8.0(API 26) 이상을 대상으로 만든 **접근성 기반 시제품**
 
 0.1.1은 일반 설치용(non-debuggable) APK를 별도 파일명으로 제공합니다. 기존 개발용 APK와 패키지 ID/서명 인증서는 유지하고 versionCode를 2로 올렸습니다. 빌드 옵션에서 V1/V2/V3 서명을 켰고 Android 16(API 36)에 대한 APK 서명 검증도 통과했습니다. **기존 0.1.0의 서명·압축·정렬 검사도 정상이었으므로, 이 변경만으로 갤럭시의 설치 실패 원인을 확정하거나 해결을 보장하지 않습니다.**
 
-- 위 링크의 `KakaoMessageFilter-Android-0.1.2.apk`를 새로 받아 설치합니다. 예전 debug 파일을 다시 여는 것과 구분하세요.
+- 위 링크의 `KakaoMessageFilter-Android-0.1.3.apk`를 새로 받아 설치합니다. 예전 debug 파일을 다시 여는 것과 구분하세요.
 - Android 16 / 64비트 전용 기기도 SDK/ABI 지원 범위에 들어갑니다. 네이티브 라이브러리가 없는 공용 APK입니다.
 - 삼성 기기에서는 **설정 → 보안 및 개인정보 보호 → 자동 차단** 상태를 확인합니다. 외부 APK 설치를 제한하는 설정이 원인일 수 있습니다. 상태만으로 단정하지 말고 설치 화면의 구체적인 안내도 확인하세요.
 - 설치되지 않았던 앱이라면 삭제할 기존 앱은 없습니다. 기존 앱이 있을 때는 서명 충돌 가능성을 확인하고 설정을 백업하기 전 무작정 삭제하지 마세요.
 - 계속 실패하면 ‘앱이 설치되지 않았습니다’ 한 줄만으로 원인을 알 수 없습니다. USB 디버깅을 이미 사용하는 개발 환경에서는 다음 명령의 `INSTALL_FAILED_...` 결과가 정확한 원인 확인에 도움이 됩니다. 기기 연결/디버깅 승인은 사용자가 직접 해야 합니다.
 
 ```sh
-adb install -r KakaoMessageFilter-Android-0.1.2.apk
+adb install -r KakaoMessageFilter-Android-0.1.3.apk
 ```
 
 ### Windows USB 설치 진단 도구
 
-[설치 진단 ZIP 파일 페이지](https://github.com/hakbeom1209/kakaotalk_minuk_chadan/blob/main/android/downloads/KakaoMessageFilter-Install-Check-Windows.zip)에서 다운로드 버튼을 누르세요. APK는 현재 0.1.2이며 설치 오류 확인용 도구를 추가한 것입니다.
+[설치 진단 ZIP 파일 페이지](https://github.com/hakbeom1209/kakaotalk_minuk_chadan/blob/main/android/downloads/KakaoMessageFilter-Install-Check-Windows.zip)에서 다운로드 버튼을 누르세요. APK는 현재 0.1.3이며 설치 오류 확인용 도구를 추가한 것입니다.
 
 Windows PC에서 압축을 모두 풀고 `INSTALL-CHECK-README.txt`를 읽으세요. Python 3.11 이상이 필요합니다. 휴대폰의 USB 디버깅을 직접 켜고 케이블로 한 대만 연결한 뒤 `install-check.cmd`를 실행합니다. 휴대폰의 디버깅 승인 후 실제 APK 설치를 시도하고 `INSTALL_RESULT.txt`에 결과를 남깁니다. `Result: SUCCESS`이면 설치가 완료된 것입니다. 실패하면 `INSTALL_FAILED_...` 또는 `INSTALL_PARSE_FAILED_...` 줄이 원인 확인에 필요합니다.
 
@@ -45,7 +45,15 @@ Windows PC에서 압축을 모두 풀고 `INSTALL-CHECK-README.txt`를 읽으세
 
 APK SHA-256은 [downloads/SHA256SUMS](downloads/SHA256SUMS)에 있습니다. 실제 갤럭시 설치 시험은 이 환경에서 실행하지 못했습니다.
 
-## 발신자는 있는데 대상/가림막이 0일 때 (0.1.2)
+## 연속 메시지 중 첫 메시지만 가려지는 경우 (0.1.3)
+
+일부 접근성 레이아웃에서 첫 메시지는 단일 노드로 보이고 다음 메시지는 자식 요소가 있는 컨테이너로 제공되면, 기존의 리소스 ID/말단 노드 조건 때문에 다음 메시지를 건너뛰었습니다. 이 형식에서 첫 메시지만 가려지는 케이스 두 개를 재현해 수정했습니다. 사용자가 보내준 실제 기기의 노드 진단을 받은 것은 아니므로, 화면에 보인 현상의 원인이 반드시 이 케이스라고 단정하지는 않습니다.
+
+0.1.3은 현재 프레임에서 확인한 발신자 구간 안에서 메시지 본문/접근성 설명을 가진 컨테이너도 처리하고, 같은 메시지 행에 설명이 있는 경우 빈 말풍선 영역도 연결합니다. 내 발신 메시지나 편집 입력을 포함한 부모 전체를 한꺼번에 가리지 않도록 제외하며, 다음 사람/이름을 읽지 못한 새 프로필에서 구간을 끊는 규칙은 유지합니다.
+
+업데이트 설치 후 같은 대화방의 연속 메시지를 확인하세요. 여전히 첫 메시지만 가려지면, 가려지지 않은 말풍선이 보이는 상태의 구조 진단 JSON이 필요합니다. 다른 사람의 메시지까지 이어 가리지 않도록 실제 노드 경계를 확인한 뒤 수정해야 합니다.
+
+## 발신자는 있는데 대상/가림막이 0일 때 (0.1.2 이후)
 
 `발신자 2 · 대상 0 · 가림막 0`은 읽은 이름이 숨김 목록과 다르거나, 일치하는 이름의 프로필이 화면에서 잘린 경우에 나올 수 있습니다. 0.1.2는 실제 인식 이름을 확인하고 선택해 추가하는 기능과 원인별 안내를 제공합니다.
 

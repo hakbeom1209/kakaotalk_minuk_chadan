@@ -44,6 +44,12 @@ data class FilterResult(val masks: List<Box>, val senders: Int, val matched: Int
 object FilterEngine {
     private val senderIds = setOf("sender_name", "chat_message_name", "message_name", "chatting_name", "profile_name", "nickname", "nick_name", "tv_nickname", "tv_name")
     private val messageIds = setOf("message", "message_text", "chat_message", "chat_message_text", "message_content", "chat_content", "bubble", "bubble_layout", "message_container", "chat_item_content", "reply_message", "photo", "image_message", "sticker", "emoticon")
+    private val timeText=Regex("(?:오전|오후)?\\s*\\d{1,2}:\\d{2}")
+    private val countText=Regex("\\d{1,3}")
+    private fun hasContent(node: UiNode): Boolean {
+        val content=node.text.ifBlank { node.description }
+        return content.isNotBlank() && !timeText.matches(content) && !countText.matches(content)
+    }
     private data class Anchor(val y: Int, val name: String?, val header: Box, val left: Int, val clipped: Boolean)
 
     fun evaluate(nodes: List<UiNode>, viewport: Box, density: Float, room: String?, rules: Rules): FilterResult {
@@ -81,6 +87,27 @@ object FilterEngine {
                 repeat(50) { if (parent in nodes.indices) { mediaParents += parent; parent = nodes[parent].parent } }
             }
         }
+        // A readable parent must not turn an outgoing/editable descendant into
+        // part of an incoming mask. Hidden templates outside the viewport do not count.
+        val protectedAncestors=mutableSetOf<Int>()
+        nodes.forEachIndexed { index,node ->
+            if (node.visible && (node.outgoing || node.editable) && node.bounds.clip(viewport)!=null) {
+                var current=index
+                repeat(50) { if (current in nodes.indices) { protectedAncestors+=current;current=nodes[current].parent } }
+            }
+        }
+        fun containerSupports(index: Int, group: Box): Boolean {
+            val child=nodes[index]
+            var parent=child.parent
+            repeat(50) {
+                if (parent !in nodes.indices) return false
+                val candidate=nodes[parent]
+                if (parent in protectedAncestors || (!rules.hideImages && parent in mediaParents)) return false
+                if (candidate.visible && candidate.bounds.contains(child.bounds) && candidate.bounds.top>=group.top && candidate.bounds.bottom<=group.bottom && hasContent(candidate)) return true
+                parent=candidate.parent
+            }
+            return false
+        }
         val masks = mutableListOf<Box>()
         var matched = 0
         ordered.forEachIndexed { index, anchor ->
@@ -92,12 +119,14 @@ object FilterEngine {
             val group = Box(viewport.left, start, viewport.right, minOf(end, viewport.bottom))
             visible.forEach { (nodeIndex, node) ->
                 val b = node.bounds
-                if (node.outgoing || (!rules.hideImages && nodeIndex in mediaParents)) return@forEach
-                if (!(node.leaf || node.role in messageIds) || b.width < dp(8) || b.height < dp(10)) return@forEach
+                if (node.outgoing || nodeIndex in protectedAncestors || (!rules.hideImages && nodeIndex in mediaParents)) return@forEach
+                if (b.width < dp(8) || b.height < dp(10)) return@forEach
                 if (b.left !in (anchor.left-dp(12))..(anchor.left+dp(48))) return@forEach
                 if (b.top < start-dp(2) || (index+1 < ordered.size && b.bottom > end+dp(2))) return@forEach
-                if (node.text.matches(Regex("(?:오전|오후)?\\s*\\d{1,2}:\\d{2}")) || node.text.matches(Regex("\\d{1,3}"))) return@forEach
-                if (node.text.isBlank() && node.description.isBlank() && !node.media && node.role !in messageIds) return@forEach
+                val supported=containerSupports(nodeIndex,group)
+                if (timeText.matches(node.text) || countText.matches(node.text)) return@forEach
+                if (!hasContent(node) && !node.media && node.role !in messageIds && !supported) return@forEach
+                if (!node.leaf && node.role !in messageIds && !hasContent(node) && !supported) return@forEach
                 val expanded = Box(b.left-dp(2), b.top-dp(1), b.right+dp(2), b.bottom+dp(1)).clip(group)
                 if (expanded != null) masks += expanded
             }

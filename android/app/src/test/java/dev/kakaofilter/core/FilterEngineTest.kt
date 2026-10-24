@@ -82,4 +82,32 @@ class FilterEngineTest {
         assertTrue(result.reason.contains("프로필이 잘려"))
         assertEquals(listOf("정민욱"),result.recognizedNames)
     }
+    @Test fun consecutiveAccessibleContainerIsMaskedEvenWithAnUnknownResourceId() {
+        val nodes=scene().take(3)+listOf(
+            UiNode(Box(60,190,260,250),id="com.kakao.talk:id/a11y_row",className="android.widget.FrameLayout",description="이어지는 메시지",leaf=false),
+            node(Box(230,235,260,249),"12:30",id="time",parent=3)
+        )+scene().drop(5)
+        val result=FilterEngine.evaluate(nodes,viewport,1f,null,rules)
+        assertEquals(2,result.masks.size)
+        assertTrue(result.masks.any { it.top<=190 && it.bottom>=250 })
+        assertTrue(result.masks.all { it.bottom<400 })
+    }
+    @Test fun blankBubbleBoundsCanUseTheirOwnAccessibleRowDescription() {
+        val nodes=scene().take(3)+listOf(
+            UiNode(Box(0,190,400,250),className="android.widget.FrameLayout",description="이어지는 메시지",leaf=false),
+            UiNode(Box(60,190,260,250),className="android.view.View",parent=3)
+        )+scene().drop(5)
+        val result=FilterEngine.evaluate(nodes,viewport,1f,null,rules)
+        assertEquals(2,result.masks.size)
+        assertTrue(result.masks.any { it.top<=190 && it.bottom>=250 })
+    }
+    @Test fun parentContainingAnOutgoingOrEditableChildIsNotMaskedAsOneMessage() {
+        val nodes=scene().take(3)+listOf(
+            UiNode(Box(60,190,380,280),className="android.widget.FrameLayout",description="메시지 모음",leaf=false),
+            node(Box(200,200,380,230),"내가 보낸 글",outgoing=true,parent=3),
+            node(Box(60,240,260,270),"입력",editable=true,parent=3)
+        )
+        val result=FilterEngine.evaluate(nodes,viewport,1f,null,rules)
+        assertEquals(1,result.masks.size)
+    }
 }

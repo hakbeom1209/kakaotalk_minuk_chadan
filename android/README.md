@@ -6,7 +6,7 @@ Android 8.0(API 26) 이상을 대상으로 만든 **접근성 기반 시제품**
 
 ## APK 설치
 
-[Android 테스트 APK 다운로드](https://github.com/hakbeom1209/kakaotalk_minuk_chadan/raw/refs/heads/main/android/downloads/KakaoMessageFilter-Android-0.1.1.apk)
+[Android 테스트 APK 다운로드](https://raw.githubusercontent.com/hakbeom1209/kakaotalk_minuk_chadan/main/android/downloads/KakaoMessageFilter-Android-0.1.1.apk)
 
 1. 휴대폰에서 APK를 받아 엽니다. 요청되면 다운로드에 사용한 브라우저/파일 앱의 **출처를 알 수 없는 앱 설치**를 허용합니다.
 2. 앱을 열고 안내를 읽은 뒤 **동의하고 접근성 설정 열기**를 누릅니다.

@@ -6,7 +6,7 @@
 
 ## Android 앱 다운로드
 
-**[Android 테스트 APK 다운로드](https://github.com/hakbeom1209/kakaotalk_minuk_chadan/raw/refs/heads/main/android/downloads/KakaoMessageFilter-Android-0.1.1.apk)** · [설치·사용 설명](android/README.md) · [Android 소스](android/)
+**[Android 테스트 APK 다운로드](https://raw.githubusercontent.com/hakbeom1209/kakaotalk_minuk_chadan/main/android/downloads/KakaoMessageFilter-Android-0.1.1.apk)** · [설치·사용 설명](android/README.md) · [Android 소스](android/)
 
 Android 8.0 이상에서 설치할 수 있는 접근성 기반 시제품입니다. 앱에서 안내를 확인하고 접근성 서비스를 켠 뒤 닉네임을 등록하세요. PC와 같은 JSON 설정을 가져오고 내보낼 수 있습니다. 별도 화면 녹화나 일반 오버레이 권한은 필요하지 않습니다.
 

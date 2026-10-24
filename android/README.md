@@ -6,7 +6,9 @@ Android 8.0(API 26) 이상을 대상으로 만든 **접근성 기반 시제품**
 
 ## APK 설치
 
-[Android 테스트 APK 다운로드](https://raw.githubusercontent.com/hakbeom1209/kakaotalk_minuk_chadan/main/android/downloads/KakaoMessageFilter-Android-0.1.1.apk)
+[Android APK 파일 페이지](https://github.com/hakbeom1209/kakaotalk_minuk_chadan/blob/main/android/downloads/KakaoMessageFilter-Android-0.1.1.apk)
+
+먼저 **Chrome에서 저장소에 접근 가능한 GitHub 계정(소유자: `hakbeom1209`)으로 로그인**하세요. 위 링크는 파일 페이지입니다. 그 안의 **↓ Download raw file**, **Download**, 또는 메뉴의 다운로드 항목을 누르세요. 비공개 저장소에서는 로그인되지 않은 파일 페이지와 정적 원본 주소가 404로 표시될 수 있습니다. 제작 환경에서 원본 파일에 접근할 수 있다는 사실만으로 휴대폰의 공개 다운로드 가능 여부를 확인할 수는 없습니다. 저장소를 공개로 바꿀 필요는 없습니다.
 
 1. 휴대폰에서 APK를 받아 엽니다. 요청되면 다운로드에 사용한 브라우저/파일 앱의 **출처를 알 수 없는 앱 설치**를 허용합니다.
 2. 앱을 열고 안내를 읽은 뒤 **동의하고 접근성 설정 열기**를 누릅니다.

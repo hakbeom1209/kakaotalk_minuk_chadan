@@ -114,8 +114,8 @@ def main():
     if cert: lines += ['export JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:-} -Djavax.net.ssl.trustStore='+str(trust)+'"']
     (TOOLS/'android-env.sh').write_text('\n'.join(lines)+'\n')
     # Use ANDROID_HOME; preserve an existing local.properties rather than overwrite it.
-    subprocess.run([str(PROJECT/'gradlew'),'--no-daemon',':app:assembleDebug',':app:testDebugUnitTest',':app:lintDebug'],cwd=PROJECT,env=env,check=True)
-    subprocess.run([str(SDK/'build-tools/35.0.0/apksigner'),'verify',str(PROJECT/'app/build/outputs/apk/debug/app-debug.apk')],env=env,check=True)
+    subprocess.run([str(PROJECT/'gradlew'),'--no-daemon',':app:assembleDebug',':app:assembleRelease',':app:testReleaseUnitTest',':app:lintRelease'],cwd=PROJECT,env=env,check=True)
+    subprocess.run([str(SDK/'build-tools/35.0.0/apksigner'),'verify',str(PROJECT/'app/build/outputs/apk/release/app-release.apk')],env=env,check=True)
     print('Android build, unit tests, lint and APK signature passed. Source /workspace/.toolchains/android-env.sh in new shells.')
 
 

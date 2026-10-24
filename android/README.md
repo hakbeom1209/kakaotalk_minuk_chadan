@@ -1,4 +1,4 @@
-# 카카오 메시지 필터 · Android 0.1.0
+# 카카오 메시지 필터 · Android 0.1.1
 
 Android 8.0(API 26) 이상을 대상으로 만든 **접근성 기반 시제품**입니다. PC와 같은 숨김 목록/채팅방 설정을 사용하지만 Android의 접근성 서비스와 가림막으로 별도 구현했습니다. 카카오톡 내부 파일이나 서버 메시지를 바꾸지 않습니다.
 
@@ -6,7 +6,7 @@ Android 8.0(API 26) 이상을 대상으로 만든 **접근성 기반 시제품**
 
 ## APK 설치
 
-[Android 테스트 APK 다운로드](https://github.com/hakbeom1209/kakaotalk_minuk_chadan/raw/refs/heads/main/android/downloads/KakaoMessageFilter-Android-debug.apk)
+[Android 테스트 APK 다운로드](https://github.com/hakbeom1209/kakaotalk_minuk_chadan/raw/refs/heads/main/android/downloads/KakaoMessageFilter-Android-0.1.1.apk)
 
 1. 휴대폰에서 APK를 받아 엽니다. 요청되면 다운로드에 사용한 브라우저/파일 앱의 **출처를 알 수 없는 앱 설치**를 허용합니다.
 2. 앱을 열고 안내를 읽은 뒤 **동의하고 접근성 설정 열기**를 누릅니다.
@@ -17,7 +17,23 @@ Android 8.0(API 26) 이상을 대상으로 만든 **접근성 기반 시제품**
 7. **필터 켜기 → 설정 저장 및 적용**을 누르고 카카오톡의 대화방을 엽니다.
 8. 잠시 뒤 앱으로 돌아오면 **마지막 채팅 화면의 발신자/대상/가림막 개수**를 확인할 수 있습니다. 필터를 끄려면 **지금 필터 중지**를 누르거나 시스템 접근성 권한을 끄세요.
 
-APK는 개발용 debug 키로 서명한 테스트 빌드입니다. Google Play에 게시한 정식 앱은 아닙니다. 개발자가 다른 키로 만든 APK로 교체하면 업데이트 설치가 거부될 수 있습니다. 이때 기존 설정을 JSON으로 내보낸 뒤 기존 앱 제거/새 설치/설정 가져오기를 진행하세요. 키를 무시하도록 서명 검증을 우회하지 마세요.
+주 다운로드 APK는 디버그 모드를 끈 release 빌드입니다. 0.1.0과 업데이트 서명을 유지하기 위해 같은 개발용 키로 서명합니다. Google Play에 게시한 정식 앱은 아닙니다. 개발자가 다른 키로 만든 APK로 교체하면 업데이트 설치가 거부될 수 있습니다. 이때 기존 설정을 JSON으로 내보낸 뒤 기존 앱 제거/새 설치/설정 가져오기를 진행하세요. 키를 무시하도록 서명 검증을 우회하지 마세요.
+
+## ‘앱이 설치되지 않았습니다’가 나올 때
+
+0.1.1은 일반 설치용(non-debuggable) APK를 별도 파일명으로 제공합니다. 기존 개발용 APK와 패키지 ID/서명 인증서는 유지하고 versionCode를 2로 올렸습니다. 빌드 옵션에서 V1/V2/V3 서명을 켰고 Android 16(API 36)에 대한 APK 서명 검증도 통과했습니다. **기존 0.1.0의 서명·압축·정렬 검사도 정상이었으므로, 이 변경만으로 갤럭시의 설치 실패 원인을 확정하거나 해결을 보장하지 않습니다.**
+
+- 위 링크의 `KakaoMessageFilter-Android-0.1.1.apk`를 새로 받아 설치합니다. 예전 debug 파일을 다시 여는 것과 구분하세요.
+- Android 16 / 64비트 전용 기기도 SDK/ABI 지원 범위에 들어갑니다. 네이티브 라이브러리가 없는 공용 APK입니다.
+- 삼성 기기에서는 **설정 → 보안 및 개인정보 보호 → 자동 차단** 상태를 확인합니다. 외부 APK 설치를 제한하는 설정이 원인일 수 있습니다. 상태만으로 단정하지 말고 설치 화면의 구체적인 안내도 확인하세요.
+- 설치되지 않았던 앱이라면 삭제할 기존 앱은 없습니다. 기존 앱이 있을 때는 서명 충돌 가능성을 확인하고 설정을 백업하기 전 무작정 삭제하지 마세요.
+- 계속 실패하면 ‘앱이 설치되지 않았습니다’ 한 줄만으로 원인을 알 수 없습니다. USB 디버깅을 이미 사용하는 개발 환경에서는 다음 명령의 `INSTALL_FAILED_...` 결과가 정확한 원인 확인에 도움이 됩니다. 기기 연결/디버깅 승인은 사용자가 직접 해야 합니다.
+
+```sh
+adb install -r KakaoMessageFilter-Android-0.1.1.apk
+```
+
+APK SHA-256은 [downloads/SHA256SUMS](downloads/SHA256SUMS)에 있습니다. 실제 갤럭시 설치 시험은 이 환경에서 실행하지 못했습니다.
 
 ## 현재 구현
 
@@ -59,19 +75,21 @@ Windows PowerShell:
 
 ```powershell
 cd android
-.\gradlew.bat :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
+.\gradlew.bat :app:assembleRelease :app:testReleaseUnitTest :app:lintRelease
 ```
 
 Linux/macOS:
 
 ```sh
 cd android
-./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
+./gradlew :app:assembleRelease :app:testReleaseUnitTest :app:lintRelease
 ```
 
 SDK 경로는 Android Studio가 만든 `local.properties` 또는 `ANDROID_HOME`으로 설정하세요. `local.properties`, 빌드 캐시, 서명 키는 저장소에 넣지 않습니다.
 
-출력: `app/build/outputs/apk/debug/app-debug.apk`
+일반 설치용 출력: `app/build/outputs/apk/release/app-release.apk`
+
+디버그 빌드가 필요하면 `:app:assembleDebug`를 실행합니다. 출력은 `app/build/outputs/apk/debug/app-debug.apk`입니다. 저장소의 기본 release 서명도 개발용 키를 사용하므로 정식 배포를 준비할 때는 별도로 보관·관리하는 배포 키와 업데이트 계획이 필요합니다.
 
 ## 검증 범위
 

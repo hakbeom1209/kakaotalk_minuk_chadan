@@ -51,7 +51,7 @@ class MainActivity : Activity() {
         fun label(text: String, size: Float=14f) = TextView(this).apply { this.text=text; textSize=size; setTextColor(Color.rgb(34,49,41)); setPadding(0,dp(10),0,dp(8)); panel.addView(this) }
         fun button(text: String, action: () -> Unit) = Button(this).apply { this.text=text; isAllCaps=false; panel.addView(this,LinearLayout.LayoutParams(-1,-2)); setOnClickListener { action() } }
         label("카카오 메시지 필터",25f)
-        label("Android 0.1.0 · 접근성 기반 실험 버전\n내 화면에만 가림막을 표시합니다. 서버 메시지는 바뀌지 않습니다.")
+        label("Android ${BuildConfig.VERSION_NAME} · 접근성 기반 실험 버전\n내 화면에만 가림막을 표시합니다. 서버 메시지는 바뀌지 않습니다.")
         status=label("접근성 서비스 확인 중")
         label("접근성 권한을 켜면 카카오톡이 전면에 있을 때 발신자와 메시지 위치를 읽습니다. 화면 촬영·원문 저장·외부 전송은 하지 않습니다. 가림막은 터치와 스크롤을 통과시킵니다.")
         button("동의하고 접근성 설정 열기") {
